@@ -1,0 +1,9 @@
+{
+  "dir": "tests/ptrliteral/result",
+  "info": "TEST #0 OF TEST FILE tests/ptrliteral/ptrliteral_f.c",
+  "cmd": "frama-c -check -no-autoload-plugins -add-symbolic-path=\"/home/jesper/Documents/opensandbox/vernfr/_build/default:.\" -load-plugin=vernfr    ptrliteral_f.c -vernfr -nfr-check-ptr-literals > \"ptrliteral_f.res.log\" 2> \"ptrliteral_f.err.log\"",
+  "out": "ptrliteral_f.res.log",
+  "err": "ptrliteral_f.err.log",
+  "oracle_out": "../oracle/ptrliteral_f.res.oracle",
+  "oracle_err": "../oracle/ptrliteral_f.err.oracle"
+}

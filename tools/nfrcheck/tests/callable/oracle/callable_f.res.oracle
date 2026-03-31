@@ -1,0 +1,7 @@
+[kernel] Parsing callable_f.c (with preprocessing)
+[nfr] Parsed ispec successfully!
+[nfr] Running whiteListFunCallsChecker
+[nfr] Warning: Function call to snd_foo, which is not in the whitelist (at callable_f.c:18)
+[nfr] Warning: Function call to snd_bar, which is not in the whitelist (at callable_f.c:19)
+[nfr] Warning: Function call to snd_bar, which is not in the whitelist (at callable_f.c:20)
+[nfr] Warning: Function call to snd_bar, which is not in the whitelist (at callable_f.c:21)

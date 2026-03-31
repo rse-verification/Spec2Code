@@ -1,0 +1,5 @@
+(rule (target "ptrliteral_f.err.oracle") (mode fallback) (action (write-file "ptrliteral_f.err.oracle" "")))
+(rule (target "ptrliteral_f.res.oracle") (mode fallback) (action (write-file "ptrliteral_f.res.oracle" "")))
+(rule (target "ptrliteral.err.oracle") (mode fallback) (action (write-file "ptrliteral.err.oracle" "")))
+(rule (target "ptrliteral.res.oracle") (mode fallback) (action (write-file "ptrliteral.res.oracle" "")))
+

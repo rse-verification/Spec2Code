@@ -1,0 +1,5 @@
+(rule (target "funptr_f.err.oracle") (mode fallback) (action (write-file "funptr_f.err.oracle" "")))
+(rule (target "funptr_f.res.oracle") (mode fallback) (action (write-file "funptr_f.res.oracle" "")))
+(rule (target "funptr.err.oracle") (mode fallback) (action (write-file "funptr.err.oracle" "")))
+(rule (target "funptr.res.oracle") (mode fallback) (action (write-file "funptr.res.oracle" "")))
+

@@ -1,0 +1,12 @@
+(library
+ (name vernfr)
+ (public_name frama-c-vernfr.core)
+ (flags -open Frama_c_kernel :standard)
+ (libraries frama-c.kernel frama-c-inout.core frama-c-eva.core parser_lib) ;;frama-c-metacsl.core)
+)
+(plugin
+ (name vernfr)
+ (libraries frama-c-vernfr.core)
+ (site (frama-c plugins))
+)
+

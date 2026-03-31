@@ -1,0 +1,47 @@
+metavar m ::=
+ {{ lex alphanum }}
+ {{ com module name }}
+metavar s ::=
+ {{ lex alphanum }}
+ {{ com function signature }}
+metavar f ::=
+ {{ lex alphanum }}
+ {{ com function name }}
+metavar h ::=
+ {{ lex alphanum }}
+ {{ com file name }}
+indexvar n ::=
+   {{ lex numeral }}
+   {{ com index variable (subscript) }}
+
+grammar
+contract :: contract_ ::=
+ {{ com module contract }}
+| module m { entry_fn entry_ord ext_call ext_ord } :: :: module
+
+entry_fn :: entry_fn_ ::=
+ {{ com entry functions }}
+| entry_functions : { s1 , ... , sn } :: :: decl
+
+entry_ord :: entry_ord_ ::=
+ {{ com entry function order }}
+| entry_order : { f1 < f'1 , ... , fn < f'n } :: :: decl
+
+ext_calls :: ext_calls_ ::=
+ {{ com external calls }}
+| external_calls : { ext_call1 , ... , ext_calln  } :: :: decl
+
+ext_call :: ext_call_ ::=
+ {{ com external call }}
+| h : { s1 , ... , sn } :: :: decl
+
+ext_ord :: ext_ord_ ::=
+ {{ com external call order }}
+| external_call_order : { f1 < f'1 , ... , fn < f'n } :: :: decl
+
+terminals :: terminals_ ::=
+| module :: :: module {{ tex \texttt{module} }}
+| entry_functions :: :: entry_functions {{ tex \texttt{entry\_functions} }}
+| entry_order :: :: entry_order {{ tex \texttt{entry\_order} }}
+| external_calls :: :: external_calls {{ tex \texttt{external\_calls} }}
+| external_call_order :: :: external_call_order {{ tex \texttt{external\_call\_order} }}

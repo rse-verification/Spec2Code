@@ -1,0 +1,5 @@
+(rule (target "static_f.err.oracle") (mode fallback) (action (write-file "static_f.err.oracle" "")))
+(rule (target "static_f.res.oracle") (mode fallback) (action (write-file "static_f.res.oracle" "")))
+(rule (target "static.err.oracle") (mode fallback) (action (write-file "static.err.oracle" "")))
+(rule (target "static.res.oracle") (mode fallback) (action (write-file "static.res.oracle" "")))
+

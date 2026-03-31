@@ -1,0 +1,11 @@
+[kernel] Parsing ptrliteral_f.c (with preprocessing)
+[kernel:typing:incompatible-types-call] ptrliteral_f.c:17: Warning: 
+  expected 'int *' but got argument of type 'int': 30
+[nfr] Running PointerLitealsChecker
+[nfr] Warning: Detected pointer literal 33 (at ptrliteral_f.c:8)
+[nfr] Warning: Detected pointer literal 0x34 (at ptrliteral_f.c:13)
+[nfr] Warning: Detected pointer literal 33 (at ptrliteral_f.c:14)
+[nfr] Warning: Detected pointer literal 0x2 (at ptrliteral_f.c:16)
+[nfr] Warning: Detected pointer literal 30 (at ptrliteral_f.c:17)
+[nfr] Warning: Detected pointer literal 9999 (at ptrliteral_f.c:21)
+[nfr] Warning: Detected pointer literal 0x22 (at ptrliteral_f.c:24)

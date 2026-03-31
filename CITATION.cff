@@ -1,0 +1,28 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite the software and the referenced paper."
+title: "spec2code"
+type: software
+authors:
+  - family-names: Sevenhuijsen
+    given-names: Merlijn
+  - family-names: Patil
+    given-names: Minal Suresh
+  - family-names: Nyberg
+    given-names: Mattias
+  - family-names: Ung
+    given-names: Gustav
+license: "LicenseRef-NonCommercial-Source"
+references:
+  - type: article
+    title: "Generating Safety-Critical Automotive C-programs using LLMs with Formal Verification"
+    authors:
+      - family-names: Sevenhuijsen
+        given-names: Merlijn
+      - family-names: Patil
+        given-names: Minal Suresh
+      - family-names: Nyberg
+        given-names: Mattias
+      - family-names: Ung
+        given-names: Gustav
+    year: 2025
+    url: "https://openreview.net/forum?id=xcLrUIeGo3"

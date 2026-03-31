@@ -1,0 +1,9 @@
+{
+  "dir": "tests/funptrs/result",
+  "info": "TEST #0 OF TEST FILE tests/funptrs/funptr_f.c",
+  "cmd": "frama-c -check -no-autoload-plugins -add-symbolic-path=\"/home/jesper/Documents/opensandbox/vernfr/_build/default:.\" -load-plugin=vernfr    funptr_f.c -vernfr -nfr-fun-ptrs > \"funptr_f.res.log\" 2> \"funptr_f.err.log\"",
+  "out": "funptr_f.res.log",
+  "err": "funptr_f.err.log",
+  "oracle_out": "../oracle/funptr_f.res.oracle",
+  "oracle_err": "../oracle/funptr_f.err.oracle"
+}

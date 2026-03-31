@@ -1,0 +1,7 @@
+[kernel] Parsing initialisation.c (with preprocessing)
+[nfr] Parsed ispec successfully!
+[nfr] Running properInitChecker
+[nfr] getting inouts next
+[nfr] All variables used have been initialised properly in f_init
+[nfr] All variables used have been initialised properly in f_10ms
+[nfr] All variables used have been initialised properly in f_close

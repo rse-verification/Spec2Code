@@ -1,0 +1,13 @@
+module m1 {
+  entry_functions: { 
+    void simp_init(void), void simp_10ms(void)
+  }
+  entry_order: { simp_init < simp_10ms }
+  external_calls: {
+    mod1.h: {
+      int read_g3(void), void write_g(int g), void write_g2(int g2)
+    },
+    mod2.h: {void mod2_foo(int *p)}
+  }
+  external_call_order: { }
+}

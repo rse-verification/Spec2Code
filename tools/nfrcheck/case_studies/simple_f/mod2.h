@@ -1,0 +1,1 @@
+void mod2_foo(int *p);

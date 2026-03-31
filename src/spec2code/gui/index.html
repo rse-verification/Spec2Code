@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spec2code Report Viewer</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css" />
+  </head>
+  <body class="theme-monokai">
+    <div class="app-shell">
+      <aside class="hotbar">
+        <a class="brand-mark" href="/runner">spec2code</a>
+        <nav class="hotbar-nav">
+          <a class="hotbar-link" href="/runner" aria-label="Runner" title="Runner"><span class="hotbar-glyph">R</span></a>
+          <a class="hotbar-link" href="/results" aria-label="Results" title="Results"><span class="hotbar-glyph">S</span></a>
+          <a class="hotbar-link active" href="/reports/last-run.html" aria-label="Report" title="Report"><span class="hotbar-glyph">P</span></a>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div class="brand-title">Report</div>
+          <div class="brand-sub">Inspect pipeline output.json</div>
+        </header>
+
+        <div class="actions">
+          <label class="file-btn">
+            Load output.json
+            <input id="fileInput" type="file" accept="application/json" />
+          </label>
+        </div>
+
+        <div class="layout">
+          <aside class="sidebar">
+        <div class="panel">
+          <div class="panel-title">Run Overview</div>
+          <div id="overview" class="kv-list">
+            <div class="kv-empty">Load a file to view details.</div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">Critics</div>
+          <div id="criticsList" class="list"></div>
+        </div>
+          </aside>
+
+          <section class="content">
+        <div class="tabs">
+          <button class="tab active" data-tab="code">Code</button>
+          <button class="tab" data-tab="critics">Critics Output</button>
+          <button class="tab" data-tab="prompt">Prompt</button>
+          <button class="tab" data-tab="raw">Raw Output</button>
+        </div>
+
+        <div id="tab-code" class="tab-panel active">
+          <div class="panel">
+            <div class="panel-title">C Implementation</div>
+            <pre id="codeBlock" class="code-block"></pre>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Generated Header</div>
+            <pre id="headerBlock" class="code-block"></pre>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Generated ACSL</div>
+            <div id="acslPath" class="muted"></div>
+          </div>
+        </div>
+
+        <div id="tab-critics" class="tab-panel">
+          <div class="panel">
+            <div class="panel-title">Critics Summary</div>
+            <div id="criticsSummary" class="grid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Findings</div>
+            <div class="filter">
+              <input id="findingFilter" type="text" placeholder="Filter by keyword" />
+            </div>
+            <div id="findingsTable" class="table"></div>
+          </div>
+        </div>
+
+        <div id="tab-prompt" class="tab-panel">
+          <div class="panel">
+            <div class="panel-title">Filled Prompt</div>
+            <pre id="promptBlock" class="code-block text-block"></pre>
+          </div>
+        </div>
+
+        <div id="tab-raw" class="tab-panel">
+          <div class="panel">
+            <div class="panel-title">Raw Output</div>
+            <pre id="rawBlock" class="code-block text-block"></pre>
+          </div>
+        </div>
+          </section>
+        </div>
+
+        <footer class="footer">
+          <span>Tip: report auto-loads after pipeline runs. You can also load any output.json manually.</span>
+        </footer>
+      </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/c.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

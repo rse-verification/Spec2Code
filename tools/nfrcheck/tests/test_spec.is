@@ -1,0 +1,21 @@
+Module m1 {
+  entry_functions: { 
+    void f_init(void), void f_10ms(void), void f_20ms(void) 
+  }, 
+  entry_order: {
+    f_init < f_10ms, 
+    f_init < f_20ms
+  }, 
+  external_calls: { 
+    util.h: { 
+      void f1(void), 
+      int f2(int x) 
+    }, m2.h : { 
+      int m2_ptr_read(const int *x), 
+      void m2_ptr_write(int *x) 
+    } 
+  }, 
+  external_call_order : { 
+    f1 < f2, f2 < m2_ptr_read 
+  } 
+}

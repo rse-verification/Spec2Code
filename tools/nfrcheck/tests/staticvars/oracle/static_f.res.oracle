@@ -1,0 +1,4 @@
+[kernel] Parsing static_f.c (with preprocessing)
+[nfr] Running StaticVariableChecker
+[nfr] Warning: Variable a does not have static storage (at static_f.c:6)
+[nfr] Warning: Variable g does not have static storage (at static_f.c:7)

@@ -1,0 +1,2 @@
+[kernel] Parsing funptr.c (with preprocessing)
+[nfr] Running NoFunctionPointersChecker

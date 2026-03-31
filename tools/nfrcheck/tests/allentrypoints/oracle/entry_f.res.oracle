@@ -1,0 +1,6 @@
+[kernel] Parsing entry_f.c (with preprocessing)
+[nfr] Parsed ispec successfully!
+[nfr] Running AllEntryPointsDeclaredChecker
+[nfr] Warning: The specified entry point f_20ms is not declared
+[nfr] Running AllEntryPointsDefinedChecker
+[nfr] Warning: The specified entry point f_10ms is not defined

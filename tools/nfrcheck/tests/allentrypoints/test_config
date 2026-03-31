@@ -1,0 +1,1 @@
+OPT: -vernfr -nfr-all-entries-declared -nfr-all-entries-defined -keep-unused-functions=all -main f_init

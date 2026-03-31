@@ -1,0 +1,28 @@
+# Python venvs
+.venv/
+venv/
+**/.venv/
+**/venv/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Big/irrelevant folders
+.git/
+output/
+.cache/
+.mypy_cache/
+.pytest_cache/
+
+# OCaml / dune build artifacts
+**/_build/
+tools/nfrcheck/_build/
+
+# opam / local tool state if any
+**/_opam/
+.opam/
+
+# big folders you probably don't need in the image build context
+output/
+**/output/

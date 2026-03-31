@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spec2code Runner</title>
+    <link rel="stylesheet" href="runner.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="hotbar">
+        <a class="brand" href="/runner" aria-label="spec2code home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" class="brand-svg">
+              <path d="M5 12 L10 7 L10 10 L14 10 L14 14 L10 14 L10 17 Z"></path>
+              <circle cx="17" cy="12" r="2.2"></circle>
+            </svg>
+          </span>
+          <span class="brand-text">spec2code</span>
+        </a>
+        <nav class="hotbar-nav">
+          <a class="hotbar-link active" href="/runner" aria-label="Runner" title="Runner">
+            <span class="hotbar-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="hotbar-icon-svg"><path d="M8 6 L18 12 L8 18 Z"></path></svg>
+            </span>
+            <span class="hotbar-label">Run</span>
+          </a>
+          <a class="hotbar-link" href="/results" aria-label="Results" title="Results">
+            <span class="hotbar-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="hotbar-icon-svg"><rect x="5" y="5" width="6" height="6" rx="1"></rect><rect x="13" y="5" width="6" height="6" rx="1"></rect><rect x="5" y="13" width="6" height="6" rx="1"></rect><rect x="13" y="13" width="6" height="6" rx="1"></rect></svg>
+            </span>
+            <span class="hotbar-label">Results</span>
+          </a>
+          <a class="hotbar-link" href="/verify" aria-label="Verify" title="Verify">
+            <span class="hotbar-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" class="hotbar-icon-svg"><path d="M6 12.5 L10 16.5 L18 8.5"></path></svg>
+            </span>
+            <span class="hotbar-label">Verify</span>
+          </a>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <h1>Runner</h1>
+          <p>Configure and run pipeline jobs.</p>
+        </header>
+
+        <div class="layout">
+          <section class="panel">
+            <h2>Run Config</h2>
+
+        <div class="mode-toggle">
+          <button id="modeTemplate" class="mode-btn active" type="button">Template Mode</button>
+          <button id="modeCustom" class="mode-btn" type="button">Custom JSON Mode</button>
+        </div>
+
+        <div id="templateModeBox">
+          <label>Template config</label>
+          <select id="templateSelect"></select>
+
+          <label>Available models (multi-select)</label>
+          <div class="inline-tools">
+            <span id="modelsLoading" class="inline-loading hidden" aria-live="polite" role="status">
+              <span class="spinner" aria-hidden="true"></span>
+              Loading models...
+            </span>
+            <button id="refreshModelsBtn" type="button" class="ghost-btn">Refresh models</button>
+          </div>
+          <select id="modelsSelect" multiple size="10"></select>
+
+          <details>
+            <summary class="hint">Runtime credentials (optional)</summary>
+            <div class="row">
+              <div>
+                <label>Anthropic API key</label>
+                <input id="anthropicApiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
+              </div>
+              <div>
+                <label>OpenAI API key</label>
+                <input id="openaiApiKey" type="password" placeholder="sk-..." autocomplete="off" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>AWS profile</label>
+                <input id="awsProfile" placeholder="bedrock" autocomplete="off" />
+              </div>
+              <div>
+                <label>AWS region</label>
+                <input id="awsRegion" value="eu-west-1" autocomplete="off" />
+              </div>
+            </div>
+            <button id="applyRuntimeEnvBtn" type="button">Apply credentials</button>
+            <div id="runtimeEnvStatus" class="hint"></div>
+          </details>
+
+          <div class="row">
+            <div>
+              <label>Programs per model</label>
+              <input id="nPrograms" type="number" min="1" value="1" />
+            </div>
+            <div>
+              <label>Temperature</label>
+              <input id="temperature" type="number" min="0" step="0.1" value="0.7" />
+            </div>
+          </div>
+        </div>
+
+        <div id="customModeBox" class="hidden">
+          <label>Custom run name</label>
+          <input id="customName" value="config_custom_zero-shot" autocomplete="off" />
+
+          <div class="row">
+            <div>
+              <label>Case study</label>
+              <input id="customCaseStudy" value="shutdown_algorithm" autocomplete="off" />
+            </div>
+            <div>
+              <label>Prompt template</label>
+              <input id="customPromptTemplate" value="zero-shot" autocomplete="off" />
+            </div>
+          </div>
+
+          <label>Models (comma-separated)</label>
+          <input id="customModels" value="test-llm-shutdown" autocomplete="off" />
+
+          <div class="row">
+            <div>
+              <label>Programs per model</label>
+              <input id="customPrograms" type="number" min="1" value="1" />
+            </div>
+            <div>
+              <label>Temperature</label>
+              <input id="customTemperature" type="number" min="0" step="0.1" value="0.7" />
+            </div>
+          </div>
+
+          <label>Output folder</label>
+          <div class="input-picker-row">
+            <input id="customOutputFolder" value="../spec2code_output/test_runs/custom" autocomplete="off" />
+            <button type="button" class="picker-btn" data-picker-target="customOutputFolder" data-picker-kind="dir">Pick</button>
+          </div>
+
+          <label>Natural spec path</label>
+          <div class="input-picker-row">
+            <input id="customNaturalSpecPath" value="../spec2code_case_studies/shutdown_algorithm/nlspec.txt" autocomplete="off" />
+            <button type="button" class="picker-btn" data-picker-target="customNaturalSpecPath" data-picker-kind="file" data-picker-ext=".txt">Pick</button>
+          </div>
+
+          <label>Interface path</label>
+          <div id="rowCustomInterface" class="input-picker-row">
+            <input id="customInterfacePath" value="../spec2code_case_studies/shutdown_algorithm/shutdown_algorithm.is" autocomplete="off" />
+            <button type="button" class="picker-btn" data-picker-target="customInterfacePath" data-picker-kind="file" data-picker-ext=".is">Pick</button>
+          </div>
+          <div class="hint">Used by prompt generation and Vernfr critics.</div>
+
+          <label>Verification header path (Frama-C only)</label>
+          <div id="rowCustomVerificationHeader" class="input-picker-row">
+            <input id="customVerificationHeaderPath" value="../spec2code_case_studies/shutdown_algorithm/headers/shutdown_algorithm_ver.h" autocomplete="off" />
+            <button type="button" class="picker-btn" data-picker-target="customVerificationHeaderPath" data-picker-kind="file" data-picker-ext=".h">Pick</button>
+          </div>
+
+          <label>Include dirs (comma-separated)</label>
+          <div class="input-picker-row">
+            <input id="customIncludeDirs" value="../spec2code_case_studies/shutdown_algorithm/headers" autocomplete="off" />
+            <button type="button" class="picker-btn" data-picker-target="customIncludeDirs" data-picker-kind="dir" data-picker-append="1">Pick</button>
+          </div>
+
+          <label>Headers dir</label>
+          <div class="input-picker-row">
+            <input id="customHeadersDir" value="../spec2code_case_studies/shutdown_algorithm/headers" autocomplete="off" />
+            <button type="button" class="picker-btn" data-picker-target="customHeadersDir" data-picker-kind="dir">Pick</button>
+          </div>
+
+          <label>Headers manifest (JSON object)</label>
+          <textarea id="customHeadersManifest" rows="6" spellcheck="false">{
+  "safety_types.h": "Basic primitive types for the shutdown example.",
+  "module_state_and_constants.h": "Module-local constants and state used by hysteresis and RS logic.",
+  "shutdown_algorithm.h": "Public module entry declaration."
+}</textarea>
+
+          <label>Critics</label>
+          <div id="customCriticsCatalog" class="critics-catalog"></div>
+
+          <details>
+            <summary class="hint">Advanced: raw config preview</summary>
+            <textarea id="customConfig" rows="12" spellcheck="false"></textarea>
+          </details>
+        </div>
+
+            <button id="runBtn">Run Pipeline</button>
+            <div id="status" class="status"></div>
+            <a id="reportLink" href="#" target="_blank" rel="noopener" class="hidden">Open Results page</a>
+          </section>
+
+          <section class="panel">
+            <h2>Execution Log</h2>
+            <pre id="logBox"></pre>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="filePickerModal" class="picker-modal hidden" aria-hidden="true">
+      <div class="picker-dialog">
+        <div class="picker-top">
+          <input id="pickerSearch" placeholder="Search files..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <button id="pickerClose" type="button">Close</button>
+        </div>
+        <div id="pickerList" class="picker-list"></div>
+      </div>
+    </div>
+    <script src="critics-ui.js"></script>
+    <script src="runner.js"></script>
+  </body>
+</html>

@@ -1,0 +1,6 @@
+[kernel] Parsing entry.c (with preprocessing)
+[nfr] Parsed ispec successfully!
+[nfr] Running AllEntryPointsDeclaredChecker
+[nfr] all specified entry points are declared
+[nfr] Running AllEntryPointsDefinedChecker
+[nfr] all specified entry points are defined

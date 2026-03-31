@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spec2code Results</title>
+    <link rel="stylesheet" href="runner.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="hotbar">
+        <a class="brand" href="/runner" aria-label="spec2code home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" class="brand-svg">
+              <path d="M5 12 L10 7 L10 10 L14 10 L14 14 L10 14 L10 17 Z"></path>
+              <circle cx="17" cy="12" r="2.2"></circle>
+            </svg>
+          </span>
+          <span class="brand-text">spec2code</span>
+        </a>
+        <nav class="hotbar-nav">
+          <a class="hotbar-link" href="/runner" aria-label="Runner" title="Runner">
+            <span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><path d="M8 6 L18 12 L8 18 Z"></path></svg></span>
+            <span class="hotbar-label">Run</span>
+          </a>
+          <a class="hotbar-link active" href="/results" aria-label="Results" title="Results">
+            <span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><rect x="5" y="5" width="6" height="6" rx="1"></rect><rect x="13" y="5" width="6" height="6" rx="1"></rect><rect x="5" y="13" width="6" height="6" rx="1"></rect><rect x="13" y="13" width="6" height="6" rx="1"></rect></svg></span>
+            <span class="hotbar-label">Results</span>
+          </a>
+          <a class="hotbar-link" href="/verify" aria-label="Verify" title="Verify">
+            <span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><path d="M6 12.5 L10 16.5 L18 8.5"></path></svg></span>
+            <span class="hotbar-label">Verify</span>
+          </a>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <h1>Results</h1>
+          <p>Inspect the latest run.</p>
+        </header>
+
+        <div class="layout layout-results">
+          <section class="panel full-width">
+            <h2>Latest Report</h2>
+            <div class="row-actions">
+              <button id="refreshResultsBtn" type="button">Refresh</button>
+              <a id="reportLinkResults" href="/reports/last-run.html" target="_blank" rel="noopener">Open in new tab</a>
+            </div>
+            <iframe id="reportFrame" title="latest report" class="report-frame"></iframe>
+          </section>
+
+          <section class="panel">
+            <h2>Critic Scores</h2>
+            <div id="criticBars" class="bars"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Outcome Split</h2>
+            <div class="muted-note">Distribution of critic outcomes in the latest sample.</div>
+            <div id="outcomePie" class="pie"></div>
+            <div id="outcomeLegend" class="legend"></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <script src="results.js"></script>
+  </body>
+</html>

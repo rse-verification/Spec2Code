@@ -1,0 +1,8 @@
+module m1 {
+  entry_functions: { 
+    void f_init(void), void f_10ms(void), void f_close(void)
+  }
+  entry_order: { f_init < f_10ms, f_10ms < f_close }
+  external_calls: { }
+  external_call_order: { }
+}

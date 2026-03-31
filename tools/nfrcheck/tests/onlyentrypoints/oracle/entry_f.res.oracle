@@ -1,0 +1,5 @@
+[kernel] Parsing entry_f.c (with preprocessing)
+[nfr] Parsed ispec successfully!
+[nfr] Running onlyEntryPointsDeclaredChecker
+[nfr] Warning: The function f_bar is declared as non-static but not in the list of entry functions (at entry_f.h:4)
+[nfr] Warning: The function f_util is defined as non-static but not in the list of entry functions (at entry_f.c:8)

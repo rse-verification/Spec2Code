@@ -1,0 +1,28 @@
+[
+  {
+    "name": "config_shutdown_algorithm_zero-shot",
+    "case_study": "shutdown_algorithm",
+    "selected_prompt_template": "zero-shot",
+    "llms_used": ["test-llm-shutdown"],
+    "n_programs_generated": 1,
+    "output_folder": "output/test_runs/shutdown_algorithm",
+    "natural_spec_path": "case_studies/shutdown_algorithm/nlspec.txt",
+    "interface_path": "case_studies/shutdown_algorithm/shutdown_algorithm.is",
+    "verification_header_path": "case_studies/shutdown_algorithm/headers/shutdown_algorithm_ver.h",
+    "include_dirs": ["case_studies/shutdown_algorithm/headers"],
+    "headers_dir": "case_studies/shutdown_algorithm/headers",
+    "headers_manifest": {
+      "safety_types.h": "Basic primitive types for the shutdown example.",
+      "module_state_and_constants.h": "Module-local constants and state used by hysteresis and RS logic.",
+      "shutdown_algorithm.h": "Public module entry declaration."
+    },
+    "temperature": 0.7,
+    "framac_wp_timeout_s": 2,
+    "framac_wp_no_let": true,
+    "critics": [
+      "compile",
+      "framac-wp",
+      "cppcheck-misra"
+    ]
+  }
+]

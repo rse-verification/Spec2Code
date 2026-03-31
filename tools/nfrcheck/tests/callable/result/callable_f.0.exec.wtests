@@ -1,0 +1,9 @@
+{
+  "dir": "tests/callable/result",
+  "info": "TEST #0 OF TEST FILE tests/callable/callable_f.c",
+  "cmd": "frama-c -check -no-autoload-plugins -add-symbolic-path=\"/home/jesper/Documents/opensandbox/vernfr/_build/default:.\" -load-plugin=vernfr    callable_f.c  -vernfr -nfr-check-calls -main f_10ms -nfr-ispec callable_spec.is > \"callable_f.res.log\" 2> \"callable_f.err.log\"",
+  "out": "callable_f.res.log",
+  "err": "callable_f.err.log",
+  "oracle_out": "../oracle/callable_f.res.oracle",
+  "oracle_err": "../oracle/callable_f.err.oracle"
+}

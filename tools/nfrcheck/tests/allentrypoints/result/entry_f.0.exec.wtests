@@ -1,0 +1,9 @@
+{
+  "dir": "tests/allentrypoints/result",
+  "info": "TEST #0 OF TEST FILE tests/allentrypoints/entry_f.c",
+  "cmd": "frama-c -check -no-autoload-plugins -add-symbolic-path=\"/home/jesper/Documents/opensandbox/vernfr/_build/default:.\" -load-plugin=vernfr    entry_f.c  -vernfr -nfr-all-entries-declared -nfr-all-entries-defined -keep-unused-functions=all -main f_init -nfr-ispec entry_spec.is > \"entry_f.res.log\" 2> \"entry_f.err.log\"",
+  "out": "entry_f.res.log",
+  "err": "entry_f.err.log",
+  "oracle_out": "../oracle/entry_f.res.oracle",
+  "oracle_err": "../oracle/entry_f.err.oracle"
+}

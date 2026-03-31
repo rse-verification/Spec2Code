@@ -1,0 +1,2 @@
+[kernel] Parsing static.c (with preprocessing)
+[nfr] Running StaticVariableChecker

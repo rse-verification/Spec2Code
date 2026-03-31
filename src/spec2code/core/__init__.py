@@ -1,0 +1,3 @@
+"""
+Core pipeline orchestration logic.
+"""

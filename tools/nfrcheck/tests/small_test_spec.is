@@ -1,0 +1,8 @@
+@Module m1 {
+  @entry_functions: { 
+        void f_init(void), void f_10ms(void), void f_20ms(void)
+  },
+  @entry_order: { },
+  @external_calls: { },
+  @external_call_order: { }
+}

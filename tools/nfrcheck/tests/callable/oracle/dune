@@ -1,0 +1,5 @@
+(rule (target "callable_f.err.oracle") (mode fallback) (action (write-file "callable_f.err.oracle" "")))
+(rule (target "callable_f.res.oracle") (mode fallback) (action (write-file "callable_f.res.oracle" "")))
+(rule (target "callable.err.oracle") (mode fallback) (action (write-file "callable.err.oracle" "")))
+(rule (target "callable.res.oracle") (mode fallback) (action (write-file "callable.res.oracle" "")))
+

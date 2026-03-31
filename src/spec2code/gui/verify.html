@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>spec2code Verify</title>
+    <link rel="stylesheet" href="runner.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="hotbar">
+        <a class="brand" href="/runner" aria-label="spec2code home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" class="brand-svg">
+              <path d="M5 12 L10 7 L10 10 L14 10 L14 14 L10 14 L10 17 Z"></path>
+              <circle cx="17" cy="12" r="2.2"></circle>
+            </svg>
+          </span>
+          <span class="brand-text">spec2code</span>
+        </a>
+        <nav class="hotbar-nav">
+          <a class="hotbar-link" href="/runner" aria-label="Runner" title="Runner"><span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><path d="M8 6 L18 12 L8 18 Z"></path></svg></span><span class="hotbar-label">Run</span></a>
+          <a class="hotbar-link" href="/results" aria-label="Results" title="Results"><span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><rect x="5" y="5" width="6" height="6" rx="1"></rect><rect x="13" y="5" width="6" height="6" rx="1"></rect><rect x="5" y="13" width="6" height="6" rx="1"></rect><rect x="13" y="13" width="6" height="6" rx="1"></rect></svg></span><span class="hotbar-label">Results</span></a>
+          <a class="hotbar-link active" href="/verify" aria-label="Verify" title="Verify"><span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><path d="M6 12.5 L10 16.5 L18 8.5"></path></svg></span><span class="hotbar-label">Verify</span></a>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <h1>Verify</h1>
+          <p>Run critics on existing files without generation.</p>
+        </header>
+
+        <div class="layout">
+          <section class="panel">
+            <h2>Verify Config</h2>
+
+            <label>C file path (required, repo-relative or absolute)</label>
+            <div class="input-picker-row">
+              <input id="cFilePath" value="../spec2code_output/test_runs/shutdown_algorithm/test-llm-shutdown/sample_000/shutdown_algorithm.c" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <button type="button" class="picker-btn" data-picker-target="cFilePath" data-picker-kind="file" data-picker-ext=".c">Pick</button>
+            </div>
+
+            <label>Generated header path (optional)</label>
+            <div class="input-picker-row">
+              <input id="generatedHeaderPath" placeholder="output/.../shutdown_algorithm.h" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <button type="button" class="picker-btn" data-picker-target="generatedHeaderPath" data-picker-kind="file" data-picker-ext=".h">Pick</button>
+            </div>
+
+            <label>Critics</label>
+            <div id="criticsCatalog" class="critics-catalog"></div>
+
+            <label>Include/Header dirs (comma-separated)</label>
+            <div class="input-picker-row">
+              <input id="includeDirs" value="../spec2code_case_studies/shutdown_algorithm/headers" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <button type="button" class="picker-btn" data-picker-target="includeDirs" data-picker-kind="dir" data-picker-append="1">Pick</button>
+            </div>
+
+            <label>Defines (comma-separated)</label>
+            <input id="defines" placeholder="DEBUG,FEATURE_X=1" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+
+            <label>Generated files (comma-separated, optional)</label>
+            <div class="input-picker-row">
+              <input id="generatedFiles" placeholder="output/.../shutdown_algorithm.c,output/.../shutdown_algorithm.h" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              <button type="button" class="picker-btn" data-picker-target="generatedFiles" data-picker-kind="file" data-picker-ext=".c,.h" data-picker-append="1">Pick</button>
+            </div>
+
+            <div class="inline-tools">
+              <label class="inline-check">
+                <input id="cleanupAfterVerify" type="checkbox" />
+                Remove copied files after verify
+              </label>
+            </div>
+
+            <button id="verifyBtn" type="button">Run Verification</button>
+            <div id="verifyStatus" class="status"></div>
+          </section>
+
+          <section class="panel verify-insights-panel">
+            <h2>Verification Insights</h2>
+            <div class="row-actions">
+              <a id="verifyResultsLink" href="/results">Open Results page</a>
+            </div>
+            <div class="bars" id="verifyBars"></div>
+            <div class="row" style="margin-top:10px;">
+              <div>
+                <div id="verifyPie" class="pie"></div>
+              </div>
+              <div id="verifyLegend" class="legend"></div>
+            </div>
+            <h2 style="margin-top:12px;">Verification Output</h2>
+            <pre id="verifyLog"></pre>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <div id="filePickerModal" class="picker-modal hidden" aria-hidden="true">
+      <div class="picker-dialog">
+        <div class="picker-top">
+          <input id="pickerSearch" placeholder="Search files..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+          <button id="pickerClose" type="button">Close</button>
+        </div>
+        <div id="pickerList" class="picker-list"></div>
+      </div>
+    </div>
+
+    <script src="critics-ui.js"></script>
+    <script src="verify.js"></script>
+  </body>
+</html>

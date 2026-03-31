@@ -1,0 +1,18 @@
+
+
+(library
+ (name parser_lib)
+ (public_name frama-c-vernfr.parser)
+ (libraries menhirLib frama-c.kernel)
+ ; (modules Ispec_parser Ispec_raw Ispec_parse_error Ispec Parse_ispec)
+ (preprocess (pps ppx_deriving.show))
+ (flags (:standard -w -26) (-open Frama_c_kernel :standard)) ; suppress menhir's partial match warning
+)
+
+; Generate the Menhir parser and OCaml lexer
+(menhir
+ (modules ispec_parser)
+)
+
+(ocamllex
+ (modules ispec_lexer))

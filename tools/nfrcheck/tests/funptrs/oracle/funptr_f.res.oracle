@@ -1,0 +1,9 @@
+[kernel] Parsing funptr_f.c (with preprocessing)
+[nfr] Running NoFunctionPointersChecker
+[nfr] Warning: Found expression containing the address of a function: internal_func (at funptr_f.c:17)
+[nfr] Warning: Found expression containing the address of a function: internal_int_func (at funptr_f.c:20)
+[nfr] Warning: Found expression containing a function pointer f_ptr (at funptr_f.c:23)
+[nfr] Warning: Found expression containing a function pointer int_f_ptr (at funptr_f.c:26)
+[nfr] Warning: Found expression containing a function pointer int_f_ptr (at funptr_f.c:29)
+[nfr] Warning: Found expression containing the address of a function: internal_int_func (at funptr_f.c:30)
+[nfr] Warning: Found expression containing a function pointer int_f_ptr (at funptr_f.c:32)

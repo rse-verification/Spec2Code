@@ -1,0 +1,8 @@
+[kernel] Parsing initialisation_f.c (with preprocessing)
+[nfr] Parsed ispec successfully!
+[nfr] Running properInitChecker
+[nfr] getting inouts next
+[nfr] Warning: The following variables uses their default value in f_init: g;
+  g4
+[nfr] Warning: The following variables uses their default value in f_10ms: output
+[nfr] Warning: The following variables uses their default value in f_close: output

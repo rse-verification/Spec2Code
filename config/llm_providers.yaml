@@ -1,0 +1,47 @@
+# Provider + model registry used by spec2code.
+#
+# How to add a new model:
+# 1) Add (or reuse) a provider under `providers`.
+# 2) Add a model under `models` and reference the provider name.
+# 3) Use the model key in input config `llms_used`.
+#
+# You can override this file path with:
+#   SPEC2CODE_LLM_CONFIG=/path/to/llm_providers.yaml
+
+providers:
+  ollama_local:
+    type: ollama
+    base_url: http://localhost:11434/v1
+    api_key: ollama
+
+  vllm_local:
+    type: openai-compatible
+    base_url: http://localhost:8000/v1
+    api_key_env: VLLM_API_KEY
+
+  openai_default:
+    type: openai-compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+
+models:
+  ollama/qwen2.5-coder:7b:
+    provider: ollama_local
+    model: qwen2.5-coder:7b
+    max_tokens: 2048
+
+  vllm/qwen2.5-coder-7b-instruct:
+    provider: vllm_local
+    model: Qwen/Qwen2.5-Coder-7B-Instruct
+    max_tokens: 2048
+
+  openai/gpt-4o-mini:
+    provider: openai_default
+    model: gpt-4o-mini
+    max_tokens: 2048
+
+  # Example custom model key you can copy/rename:
+  # my-vllm-model:
+  #   provider: vllm_local
+  #   model: Qwen/Qwen2.5-Coder-7B-Instruct
+  #   max_tokens: 2048

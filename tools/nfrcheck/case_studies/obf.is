@@ -1,0 +1,42 @@
+entry functions:
+    void x22(void);
+    void x19(void);
+
+assume call order:
+    void x19(void) < void x22(void)
+
+externally callable:
+    x49.h {
+        void x20(void),
+        void x21(void),
+        void x24(x44 part_E, x45 funcId_E)
+    }
+    x48.h {
+        bool x27(),
+        bool x28()
+    }
+    x47.h {
+        uint8_t x29(),
+        uint8_t x30(),
+        tF32s x32,
+        tF32s x33(),
+    }
+    x46.h? {
+        int8_t x31()
+    }
+
+    rtdb.h {
+        void x34(bool),
+        void x35(bool)
+    }
+
+    util.h {
+        void x36(string)
+    }
+
+ensured call order:
+    x20() < x21()
+
+NOTE: Remove this?
+pointer function calls:
+    none
