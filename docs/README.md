@@ -4,6 +4,7 @@ Use this page as the entry point to the docs set.
 
 ## Core
 
+- Install and run: `docs/INSTALLING_AND_RUNNING.md`
 - Architecture: `docs/ARCHITECTURE.md`
 - Extension index: `docs/EXTENDING.md`
 

@@ -46,6 +46,12 @@ Reference paper for the shutdown-algorithm use case:
 - Commercial use is **not allowed** without written permission.
 - See `LICENSE` for full terms.
 
+## Documentation
+
+- Install and run: `docs/INSTALLING_AND_RUNNING.md`
+- Add a critic: `docs/ADDING_CRITICS.md`
+- Docs index: `docs/README.md`
+
 ## How the Code Works
 
 High-level pipeline flow:
@@ -75,6 +81,8 @@ flowchart TD
 For a deeper component walkthrough, see `docs/ARCHITECTURE.md`.
 
 ## Docker-First Setup (Recommended)
+
+Full setup/run instructions are maintained in `docs/INSTALLING_AND_RUNNING.md`.
 
 This project is designed to run cleanly inside Docker.
 
