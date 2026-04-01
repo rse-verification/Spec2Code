@@ -257,21 +257,26 @@ Pipeline configs are JSON arrays (multiple runs per file).
 
 Key fields:
 
-- `name`, `case_study`, `selected_prompt_template`
+- `name`, `selected_prompt_template`
 - `llms_used`, `n_programs_generated`, `temperature`
 - `natural_spec_path`, `interface_path`, `headers_dir`, `headers_manifest`
 - `include_dirs`, `verification_header_path`
 - `critics`, `timeout_s`, `framac_wp_timeout_s`, `framac_wp_no_let`
 
+Notes:
+
+- `case_study` is still accepted for backward compatibility, but current templates use explicit file paths.
+- Relative `case_studies/...` paths resolve against `<SPEC2CODE_CASE_STUDIES_ROOT>` when assets are externalized.
+
 Reference:
 
 - `config/gui_templates/shutdown-algorithm-template.json`
 
-## Supported Use Cases
+## Case Study Status
 
-- `sgmm_full` in `<SPEC2CODE_CASE_STUDIES_ROOT>/sgmm_full`
-- `sfld_full` in `<SPEC2CODE_CASE_STUDIES_ROOT>/sfld_full`
-- `shutdown_algorithm` in `<SPEC2CODE_CASE_STUDIES_ROOT>/shutdown_algorithm` (based on [Liu et al., 2024](https://www.mdpi.com/2076-3417/14/3/1046))
+- Supported out of the box: `shutdown_algorithm` in `<SPEC2CODE_CASE_STUDIES_ROOT>/shutdown_algorithm`
+- Legacy/experimental identifiers like `sgmm*` and `sfld*` may be accepted by parser logic, but they are not shipped as ready-to-run templates/assets in this OSS package.
+- See `docs/CASE_STUDIES.md` for expected folder layout and status by case study.
 
 Run the shutdown algorithm use case:
 
@@ -306,11 +311,13 @@ Implementation entrypoint:
 
 For adding providers, critics, prompt templates, parser formats, and pipeline features:
 
+- `docs/README.md`
 - `docs/EXTENDING.md`
 - `docs/ADDING_LLMS.md`
 - `docs/ADDING_CRITICS.md`
 - `docs/ADDING_PROMPTS.md`
 - `docs/ADDING_PIPELINE_FEATURES.md`
+- `docs/CASE_STUDIES.md`
 - `docs/ARCHITECTURE.md`
 
 ## Optional: Local Python (Without Docker)
