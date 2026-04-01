@@ -95,6 +95,8 @@ From repository root:
 docker build -f dockerfile -t spec2code:local .
 ```
 
+This build includes Vernfr (`tools/nfrcheck`) by default.
+
 Apple Silicon (M1/M2/M3) notes:
 
 - Native build (recommended):
@@ -113,6 +115,12 @@ Optional (only if you need Bedrock CLI commands in-container):
 
 ```bash
 docker build -f dockerfile --build-arg INSTALL_AWSCLI=1 -t spec2code:local .
+```
+
+Optional (skip Vernfr build when troubleshooting image setup):
+
+```bash
+docker build -f dockerfile --build-arg BUILD_NFRCHECK=0 -t spec2code:local .
 ```
 
 ### 3) Run container with project mounted
@@ -281,6 +289,9 @@ Configurable critics:
 - `vernfr-control-flow`
 - `vernfr-data-flow`
 
+Vernfr support is built from `tools/nfrcheck` as part of the Docker image build.
+If you run without Docker, make sure the scripts in `tools/nfrcheck/scripts/` are available and executable.
+
 Implementation entrypoint:
 
 - `src/spec2code/pipeline_modules/critics/critics_runner.py`
@@ -307,4 +318,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 PYTHONPATH=src python -m spec2code.cli.run_pipeline --config config/gui_templates/shutdown-algorithm-template.json
+```
+
+For Vernfr critics in local (non-Docker) runs, build `tools/nfrcheck` first:
+
+```bash
+eval "$(opam env --switch=ocaml5)"
+cd tools/nfrcheck
+dune build @install
+dune install
 ```
