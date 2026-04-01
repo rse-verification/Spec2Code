@@ -307,6 +307,10 @@ Implementation entrypoint:
 For adding providers, critics, prompt templates, parser formats, and pipeline features:
 
 - `docs/EXTENDING.md`
+- `docs/ADDING_LLMS.md`
+- `docs/ADDING_CRITICS.md`
+- `docs/ADDING_PROMPTS.md`
+- `docs/ADDING_PIPELINE_FEATURES.md`
 - `docs/ARCHITECTURE.md`
 
 ## Optional: Local Python (Without Docker)

@@ -52,4 +52,4 @@ This document explains the runtime flow and key reusable modules in `spec2code`.
   - `prompts/`
   - `src/spec2code/pipeline_modules/experiment_parameters.py`
 
-See `docs/EXTENDING.md` for step-by-step implementation guidance.
+See `docs/EXTENDING.md` for the extension index and links to focused implementation guides.
