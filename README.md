@@ -1,5 +1,11 @@
 # spec2code: LLM-to-C Pipeline for Safety-Critical Code Generation
 
+## Start Here
+
+- [Install and run](docs/INSTALLING_AND_RUNNING.md)
+- [Add a critic](docs/ADDING_CRITICS.md)
+- [Browse all docs](docs/README.md)
+
 `spec2code` generates C implementations from structured requirements and evaluates them using compile checks, formal verification, and non-functional critics.
 
 ![spec2code GUI report](<img/Screenshot 2026-03-11 at 10.23.59 AM.png>)
@@ -48,9 +54,9 @@ Reference paper for the shutdown-algorithm use case:
 
 ## Documentation
 
-- Install and run: `docs/INSTALLING_AND_RUNNING.md`
-- Add a critic: `docs/ADDING_CRITICS.md`
-- Docs index: `docs/README.md`
+- Install and run: [docs/INSTALLING_AND_RUNNING.md](docs/INSTALLING_AND_RUNNING.md)
+- Add a critic: [docs/ADDING_CRITICS.md](docs/ADDING_CRITICS.md)
+- Docs index: [docs/README.md](docs/README.md)
 
 ## How the Code Works
 
@@ -78,11 +84,11 @@ flowchart TD
     I --> J[GUI report: <SPEC2CODE_OUTPUT_ROOT>/reports/last-run.html]
 ```
 
-For a deeper component walkthrough, see `docs/ARCHITECTURE.md`.
+For a deeper component walkthrough, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Docker-First Setup (Recommended)
 
-Full setup/run instructions are maintained in `docs/INSTALLING_AND_RUNNING.md`.
+Full setup/run instructions are maintained in [docs/INSTALLING_AND_RUNNING.md](docs/INSTALLING_AND_RUNNING.md).
 
 This project is designed to run cleanly inside Docker.
 
@@ -284,7 +290,7 @@ Reference:
 
 - Supported out of the box: `shutdown_algorithm` in `<SPEC2CODE_CASE_STUDIES_ROOT>/shutdown_algorithm`
 - Legacy/experimental identifiers like `sgmm*` and `sfld*` may be accepted by parser logic, but they are not shipped as ready-to-run templates/assets in this OSS package.
-- See `docs/CASE_STUDIES.md` for expected folder layout and status by case study.
+- See [docs/CASE_STUDIES.md](docs/CASE_STUDIES.md) for expected folder layout and status by case study.
 
 Run the shutdown algorithm use case:
 
@@ -319,14 +325,14 @@ Implementation entrypoint:
 
 For adding providers, critics, prompt templates, parser formats, and pipeline features:
 
-- `docs/README.md`
-- `docs/EXTENDING.md`
-- `docs/ADDING_LLMS.md`
-- `docs/ADDING_CRITICS.md`
-- `docs/ADDING_PROMPTS.md`
-- `docs/ADDING_PIPELINE_FEATURES.md`
-- `docs/CASE_STUDIES.md`
-- `docs/ARCHITECTURE.md`
+- [docs/README.md](docs/README.md)
+- [docs/EXTENDING.md](docs/EXTENDING.md)
+- [docs/ADDING_LLMS.md](docs/ADDING_LLMS.md)
+- [docs/ADDING_CRITICS.md](docs/ADDING_CRITICS.md)
+- [docs/ADDING_PROMPTS.md](docs/ADDING_PROMPTS.md)
+- [docs/ADDING_PIPELINE_FEATURES.md](docs/ADDING_PIPELINE_FEATURES.md)
+- [docs/CASE_STUDIES.md](docs/CASE_STUDIES.md)
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Optional: Local Python (Without Docker)
 
