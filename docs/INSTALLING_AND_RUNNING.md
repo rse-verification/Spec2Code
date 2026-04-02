@@ -12,17 +12,17 @@ docker build -f dockerfile -t spec2code:local .
 
 Notes:
 
-- Vernfr (`tools/nfrcheck`) is built by default.
+- Vernfr (`tools/nfrcheck`) is optional and not built by default.
 - Optional Bedrock CLI in image:
 
 ```bash
 docker build -f dockerfile --build-arg INSTALL_AWSCLI=1 -t spec2code:local .
 ```
 
-- Optional skip Vernfr build:
+- Optional enable Vernfr build:
 
 ```bash
-docker build -f dockerfile --build-arg BUILD_NFRCHECK=0 -t spec2code:local .
+docker build -f dockerfile --build-arg BUILD_NFRCHECK=1 -t spec2code:local .
 ```
 
 ### 2) Start container
@@ -61,6 +61,12 @@ PYTHONPATH=src python -m spec2code.cli.run_pipeline --config config/gui_template
 ```
 
 If using Vernfr critics outside Docker:
+
+```bash
+bash tools/install_optional_vernfr.sh
+```
+
+Manual equivalent:
 
 ```bash
 eval "$(opam env --switch=ocaml5)"

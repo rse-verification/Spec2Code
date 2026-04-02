@@ -104,8 +104,8 @@ RUN mkdir -p /root/.config/cppcheck \
     fi
 
 # --- Build/install Vernfr (tools/nfrcheck) ---
-# Default on; disable only when needed with --build-arg BUILD_NFRCHECK=0
-ARG BUILD_NFRCHECK=1
+# Optional by default; enable with --build-arg BUILD_NFRCHECK=1
+ARG BUILD_NFRCHECK=0
 RUN if [ "$BUILD_NFRCHECK" = "1" ] && [ -d /workspace/tools/nfrcheck ]; then \
       bash -lc 'eval "$(opam env --switch=ocaml5)" && cd /workspace/tools/nfrcheck && dune build -j $(nproc) @install && dune install' ; \
     else \

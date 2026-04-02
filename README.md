@@ -4,6 +4,7 @@
 
 - [Install and run](docs/INSTALLING_AND_RUNNING.md)
 - [Add a critic](docs/ADDING_CRITICS.md)
+- [Critic extensibility plan](docs/CRITIC_EXTENSIBILITY_PLAN.md)
 - [Browse all docs](docs/README.md)
 
 `spec2code` generates C implementations from structured requirements and evaluates them using compile checks, formal verification, and non-functional critics.
@@ -109,7 +110,7 @@ From repository root:
 docker build -f dockerfile -t spec2code:local .
 ```
 
-This build includes Vernfr (`tools/nfrcheck`) by default.
+Vernfr (`tools/nfrcheck`) is optional and is not built by default.
 
 Apple Silicon (M1/M2/M3) notes:
 
@@ -131,10 +132,10 @@ Optional (only if you need Bedrock CLI commands in-container):
 docker build -f dockerfile --build-arg INSTALL_AWSCLI=1 -t spec2code:local .
 ```
 
-Optional (skip Vernfr build when troubleshooting image setup):
+Optional (enable Vernfr build in Docker image):
 
 ```bash
-docker build -f dockerfile --build-arg BUILD_NFRCHECK=0 -t spec2code:local .
+docker build -f dockerfile --build-arg BUILD_NFRCHECK=1 -t spec2code:local .
 ```
 
 ### 3) Run container with project mounted
@@ -308,8 +309,8 @@ Configurable critics:
 - `vernfr-control-flow`
 - `vernfr-data-flow`
 
-Vernfr support is built from `tools/nfrcheck` as part of the Docker image build.
-If you run without Docker, make sure the scripts in `tools/nfrcheck/scripts/` are available and executable.
+Vernfr support is optional. Build/install it only when you want Vernfr critics.
+If Vernfr is not installed, other critics still work normally.
 
 Implementation entrypoint:
 
@@ -329,6 +330,7 @@ For adding providers, critics, prompt templates, parser formats, and pipeline fe
 - [docs/EXTENDING.md](docs/EXTENDING.md)
 - [docs/ADDING_LLMS.md](docs/ADDING_LLMS.md)
 - [docs/ADDING_CRITICS.md](docs/ADDING_CRITICS.md)
+- [docs/CRITIC_EXTENSIBILITY_PLAN.md](docs/CRITIC_EXTENSIBILITY_PLAN.md)
 - [docs/ADDING_PROMPTS.md](docs/ADDING_PROMPTS.md)
 - [docs/ADDING_PIPELINE_FEATURES.md](docs/ADDING_PIPELINE_FEATURES.md)
 - [docs/CASE_STUDIES.md](docs/CASE_STUDIES.md)
@@ -345,7 +347,13 @@ pip install -r requirements.txt
 PYTHONPATH=src python -m spec2code.cli.run_pipeline --config config/gui_templates/shutdown-algorithm-template.json
 ```
 
-For Vernfr critics in local (non-Docker) runs, build `tools/nfrcheck` first:
+For Vernfr critics in local (non-Docker) runs, install optional tooling first:
+
+```bash
+bash tools/install_optional_vernfr.sh
+```
+
+Manual equivalent:
 
 ```bash
 eval "$(opam env --switch=ocaml5)"
