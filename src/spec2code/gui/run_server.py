@@ -19,6 +19,11 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from spec2code.pipeline_modules import llms
+from spec2code.pipeline_modules.critics.critics_registry import (
+    DEFAULT_VERNFR_CONTROL_SCRIPT,
+    DEFAULT_VERNFR_DATA_SCRIPT,
+    GUI_CRITICS_CATALOG,
+)
 from spec2code.pipeline_modules.critics.critics_runner import build_critics_from_names, run_critics_on_artifacts
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -55,89 +60,6 @@ _RUN_JOBS: dict[str, dict[str, Any]] = {}
 
 MOCK_MODELS = [
     "test-llm-shutdown",
-]
-
-DEFAULT_MISRA_RULES_PATH = "src/spec2code/pipeline_modules/critics/misra_rules_2012.txt"
-DEFAULT_VERNFR_CONTROL_SCRIPT = "tools/nfrcheck/scripts/control-flow-check.sh"
-DEFAULT_VERNFR_DATA_SCRIPT = "tools/nfrcheck/scripts/data-flow-check.sh"
-DEFAULT_FRAMAC_FORMAL_PATH = "case_studies/shutdown_algorithm/headers/shutdown_algorithm_ver.h"
-DEFAULT_VERNFR_INTERFACE_PATH = "case_studies/shutdown_algorithm/shutdown_algorithm.is"
-
-CRITICS_CATALOG: list[dict[str, Any]] = [
-    {
-        "name": "compile",
-        "label": "Compile",
-        "default_enabled": True,
-        "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
-        ],
-    },
-    {
-        "name": "cppcheck-misra",
-        "label": "Cppcheck MISRA",
-        "default_enabled": True,
-        "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
-            {
-                "key": "misra_rules_path",
-                "type": "path",
-                "label": "MISRA Rules Path",
-                "default": DEFAULT_MISRA_RULES_PATH,
-            },
-        ],
-    },
-    {
-        "name": "framac-wp",
-        "label": "Frama-C WP",
-        "default_enabled": True,
-        "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
-            {"key": "wp_timeout", "type": "int", "label": "WP Timeout (s)", "default": 2},
-            {"key": "solvers", "type": "string", "label": "Solvers (comma-separated)", "default": "Alt-Ergo"},
-            {
-                "key": "formal_c_path",
-                "type": "path",
-                "label": "Formal Spec Path",
-                "default": DEFAULT_FRAMAC_FORMAL_PATH,
-                "ext": ".c,.h",
-            },
-            {"key": "framac_wp_no_let", "type": "bool", "label": "No Let", "default": False},
-            {"key": "model", "type": "string", "label": "Model", "default": "real"},
-            {"key": "rte", "type": "bool", "label": "Enable RTE", "default": True},
-            {"key": "smoke_tests", "type": "bool", "label": "Smoke Tests", "default": False},
-        ],
-    },
-    {
-        "name": "vernfr",
-        "label": "Vernfr",
-        "default_enabled": False,
-        "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
-            {"key": "control_flow", "type": "bool", "label": "Enable Control Flow", "default": True},
-            {"key": "data_flow", "type": "bool", "label": "Enable Data Flow", "default": True},
-            {
-                "key": "interface_path",
-                "type": "path",
-                "label": "Interface Path",
-                "default": DEFAULT_VERNFR_INTERFACE_PATH,
-                "ext": ".is",
-            },
-            {"key": "main", "type": "string", "label": "Main Function (optional)", "default": ""},
-            {"key": "modname", "type": "string", "label": "Module Name (optional)", "default": ""},
-            {
-                "key": "control_script_path",
-                "type": "path",
-                "label": "Control Script Path",
-                "default": DEFAULT_VERNFR_CONTROL_SCRIPT,
-            },
-            {
-                "key": "data_script_path",
-                "type": "path",
-                "label": "Data Script Path",
-                "default": DEFAULT_VERNFR_DATA_SCRIPT,
-            },
-        ],
-    },
 ]
 
 
@@ -186,7 +108,7 @@ def _detect_why3_solvers() -> list[str]:
 
 
 def _build_critics_catalog() -> tuple[list[dict[str, Any]], list[str]]:
-    catalog = copy.deepcopy(CRITICS_CATALOG)
+    catalog = copy.deepcopy(GUI_CRITICS_CATALOG)
     detected = _detect_why3_solvers()
     default_solvers = ",".join(detected) if detected else "Alt-Ergo"
 

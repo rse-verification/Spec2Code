@@ -12,6 +12,7 @@ Use this page as the entry point to the docs set.
 
 - Adding LLM providers/models: [ADDING_LLMS.md](ADDING_LLMS.md)
 - Adding critics (runtime + GUI + tooling): [ADDING_CRITICS.md](ADDING_CRITICS.md)
+- Critic extensibility roadmap: [CRITIC_EXTENSIBILITY_PLAN.md](CRITIC_EXTENSIBILITY_PLAN.md)
 - Adding prompt templates: [ADDING_PROMPTS.md](ADDING_PROMPTS.md)
 - Adding config/runtime features: [ADDING_PIPELINE_FEATURES.md](ADDING_PIPELINE_FEATURES.md)
 

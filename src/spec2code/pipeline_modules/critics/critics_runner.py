@@ -1,21 +1,10 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from spec2code.pipeline_modules.critics.critics_interface import Critic, CriticInput, CriticResult
-from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic
-from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
-from spec2code.pipeline_modules.critics.critics_compile import CompileCritic
-from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
-
-
-_MISRA_RULES_PATH = str(Path(__file__).with_name("misra_rules_2012.txt"))
-
-_REPO_ROOT = Path(__file__).resolve().parents[4]
-_CONTROL_FLOW_SCRIPT = str(_REPO_ROOT / "tools" / "nfrcheck" / "scripts" / "control-flow-check.sh")
-_DATA_FLOW_SCRIPT = str(_REPO_ROOT / "tools" / "nfrcheck" / "scripts" / "data-flow-check.sh")
+from spec2code.pipeline_modules.critics.critics_registry import CRITIC_BUILDERS, DEFAULT_CRITIC_NAMES
 
 
 def _fmt_duration(seconds: float) -> str:
@@ -37,33 +26,12 @@ def build_default_critics(
     timeout: int = 60,
     critic_options: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> List[Critic]:
-    opts = dict(critic_options or {})
-    framac_opts = dict(opts.get("framac-wp", {}))
-    framac_wp_timeout_s = int(framac_opts.get("wp_timeout", 2))
-    framac_smoke_tests = bool(framac_opts.get("smoke_tests", False))
-    framac_model = framac_opts.get("model", "real")
-    framac_rte = bool(framac_opts.get("rte", True))
-
-    return [
-        CompileCritic(),
-        CppcheckMisraCritic(misra_rules_path=_MISRA_RULES_PATH, timeout=timeout),
-        FramaCWPCritic(
-            solvers=solvers,
-            wp_timeout=framac_wp_timeout_s,
-            smoke_tests=framac_smoke_tests,
-            timeout=timeout,
-            model=framac_model,
-            rte=framac_rte,
-        ),
-        VernfrCritic(
-            default_script_path=_CONTROL_FLOW_SCRIPT,
-            timeout=timeout,
-        ),
-        VernfrCritic(
-            default_script_path=_DATA_FLOW_SCRIPT,
-            timeout=timeout,
-        ),
-    ]
+    return build_critics_from_names(
+        names=list(DEFAULT_CRITIC_NAMES),
+        solvers=solvers,
+        timeout=timeout,
+        critic_options=critic_options,
+    )
 
 
 def build_critics_from_names(
@@ -78,46 +46,10 @@ def build_critics_from_names(
 
     for n in names:
         n_opts = dict(opts.get(n, {}))
-        critic_timeout = int(n_opts.get("timeout", timeout))
-
-        if n == "compile":
-            out.append(CompileCritic())
-        elif n == "cppcheck-misra":
-            rules_path = str(n_opts.get("misra_rules_path", _MISRA_RULES_PATH))
-            out.append(CppcheckMisraCritic(misra_rules_path=rules_path, timeout=critic_timeout))
-        elif n == "framac-wp":
-            wp_timeout = int(n_opts.get("wp_timeout", 2))
-            smoke_tests = bool(n_opts.get("smoke_tests", False))
-            model = n_opts.get("model", "real")
-            rte = bool(n_opts.get("rte", True))
-            out.append(
-                FramaCWPCritic(
-                    solvers=solvers,
-                    wp_timeout=wp_timeout,
-                    smoke_tests=smoke_tests,
-                    timeout=critic_timeout,
-                    model=model,
-                    rte=rte,
-                )
-            )
-        elif n == "vernfr-control-flow":
-            script = str(n_opts.get("script_path", _CONTROL_FLOW_SCRIPT))
-            critic = VernfrCritic(
-                default_script_path=script,
-                timeout=critic_timeout,
-            )
-            setattr(critic, "name", "vernfr-control-flow")
-            out.append(critic)
-        elif n == "vernfr-data-flow":
-            script = str(n_opts.get("script_path", _DATA_FLOW_SCRIPT))
-            critic = VernfrCritic(
-                default_script_path=script,
-                timeout=critic_timeout,
-            )
-            setattr(critic, "name", "vernfr-data-flow")
-            out.append(critic)
-        else:
+        builder = CRITIC_BUILDERS.get(n)
+        if builder is None:
             raise ValueError(f"Unknown critic name: {n}")
+        out.append(builder(n_opts, solvers, timeout))
 
     return out
 

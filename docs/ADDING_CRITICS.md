@@ -1,6 +1,15 @@
 # Adding Critics
 
-This guide covers the full path for a new critic: runtime class, runner registration, GUI controls, external tool placement, and tests.
+This guide covers the full path for a new critic: runtime class, registry entry, GUI controls, external tool placement, and tests.
+
+## TL;DR (Current Fast Path)
+
+For most critics, you now only need two code changes:
+
+1. Add `critics_<name>.py` in `src/spec2code/pipeline_modules/critics/`.
+2. Register it once in `src/spec2code/pipeline_modules/critics/critics_registry.py` (builder + GUI option schema).
+
+Both backend construction and GUI form rendering are driven from that same registry.
 
 ## 1) Implement the Critic Interface
 
@@ -49,31 +58,34 @@ Notes:
 - `findings` should be structured and actionable (`severity`, `message`, `location`, `rule`).
 - If your tool can fail with partial output, still return valid `CriticResult`.
 
-## 2) Register the Critic in Runner
+## 2) Register the Critic in Registry
 
-Edit `src/spec2code/pipeline_modules/critics/critics_runner.py`:
+Edit `src/spec2code/pipeline_modules/critics/critics_registry.py`:
 
-1. Import your class.
-2. Add a `build_critics_from_names(...)` branch for your critic name.
-3. Optionally include it in `build_default_critics(...)`.
+1. Import your critic class.
+2. Add a builder function that consumes per-critic options and returns a `Critic`.
+3. Register that builder in `CRITIC_BUILDERS`.
+4. Add GUI metadata in `GUI_CRITICS_CATALOG` (label/default/options).
+5. Optionally include the name in `DEFAULT_CRITIC_NAMES`.
 
 Typical branch pattern:
 
 ```python
-elif n == "my-tool":
-    bin_path = str(n_opts.get("bin_path", _MY_TOOL_BIN))
-    out.append(MyToolCritic(bin_path=bin_path, timeout=critic_timeout))
+def _build_my_tool(opts: Dict[str, Any], _solvers: list, timeout: int) -> Critic:
+    critic_timeout = int(opts.get("timeout", timeout))
+    bin_path = str(opts.get("bin_path", "tools/my_tool/scripts/check.sh"))
+    return MyToolCritic(bin_path=bin_path, timeout=critic_timeout)
 ```
 
-This is how config `critic_options["my-tool"]` gets into your critic.
+`critics_runner.py` uses `CRITIC_BUILDERS`, so config `critic_options["my-tool"]` flows through automatically.
 
 ## 3) Expose the Critic in GUI (Runner/Verify)
 
-The GUI critic form is catalog-driven, so in most cases you only change one backend constant.
+The GUI critic form is catalog-driven from registry metadata.
 
-Primary file: `src/spec2code/gui/run_server.py`
+Primary file: `src/spec2code/pipeline_modules/critics/critics_registry.py`
 
-Add your entry in `CRITICS_CATALOG`:
+Add your entry in `GUI_CRITICS_CATALOG`:
 
 ```python
 {
@@ -130,7 +142,10 @@ If the tool needs build/install in Docker:
 - document opt-out build args if expensive/optional
 - document local (non-Docker) build commands in `README.md`
 
-Vernfr is the reference pattern (`tools/nfrcheck`).
+Vernfr is the reference pattern (`tools/nfrcheck`) with optional installation via:
+
+- `bash tools/install_optional_vernfr.sh`
+- Docker build flag: `--build-arg BUILD_NFRCHECK=1`
 
 ## 6) Config Usage
 
@@ -161,3 +176,5 @@ At minimum test:
 - non-zero tool failure path
 - timeout path
 - missing required file/tool path
+
+For upcoming pluginization improvements, see `docs/CRITIC_EXTENSIBILITY_PLAN.md`.
