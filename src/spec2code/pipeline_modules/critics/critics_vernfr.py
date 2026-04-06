@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from typing import Any, Dict, List, Optional
 
 from spec2code.pipeline_modules.subprocess_creator import run_command
@@ -34,9 +35,19 @@ class VernfrCritic:
 
         folder = str(ctx.get("folder") or os.path.dirname(c_file_path) or ".")
         modname = str(ctx.get("modname") or _infer_modname(c_file_path))
+
+        interface_path = str(ctx.get("interface_path") or "").strip()
+        interface_text = str(ctx.get("interface_text") or "")
+        if not interface_text and interface_path and os.path.isfile(interface_path):
+            try:
+                with open(interface_path, "r", encoding="utf-8") as f:
+                    interface_text = f.read()
+            except Exception:
+                interface_text = ""
+
         main = str(ctx.get("main") or "").strip()
         if not main:
-            main = _infer_main_from_interface_text(str(ctx.get("interface_text") or "")) or "main"
+            main = _infer_main_from_interface_text(interface_text) or "main"
 
         script_path = str(ctx.get("script_path") or self.default_script_path or "")
         if not script_path:
@@ -46,6 +57,20 @@ class VernfrCritic:
         if not os.path.exists(script_path):
             msg = f"Script not found: {script_path}"
             return _fail(self.name, msg, c_file_path, metrics={"message": msg, "script_path": script_path})
+
+        if not os.path.isdir(folder):
+            msg = f"Folder does not exist: {folder}"
+            return _fail(self.name, msg, c_file_path, metrics={"message": msg, "folder": folder})
+
+        cleanup_files: List[str] = []
+        staged_interface = os.path.join(folder, f"{modname}.is")
+        if interface_path and os.path.isfile(interface_path) and not os.path.isfile(staged_interface):
+            try:
+                shutil.copy2(interface_path, staged_interface)
+                cleanup_files.append(staged_interface)
+            except Exception as exc:
+                msg = f"Failed to stage interface file: {exc}"
+                return _fail(self.name, msg, c_file_path, metrics={"message": msg, "interface_path": interface_path})
 
         # Build command
         cmd_parts: List[str] = [
@@ -64,8 +89,16 @@ class VernfrCritic:
 
         cmd = " ".join(_quote_if_needed(p) for p in cmd_parts)
 
-        # If you can, update run_command to return (stdout, stderr, completed, exit_code)
-        res = run_command(cmd, timeout)
+        try:
+            # If you can, update run_command to return (stdout, stderr, completed, exit_code)
+            res = run_command(cmd, timeout)
+        finally:
+            for p in cleanup_files:
+                try:
+                    if os.path.isfile(p):
+                        os.remove(p)
+                except Exception:
+                    pass
 
         exit_code: Optional[int] = None
         timing: Dict[str, float] = {}
