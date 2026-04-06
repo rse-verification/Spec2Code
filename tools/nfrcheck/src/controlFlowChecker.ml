@@ -4,6 +4,22 @@ open GenericNFRChecker
 (* open Parser_lib.Ispec *)
 open Utils
 
+(* 
+class callGraphBuilder ispec = object (self) 
+inherit genericNFRChecker ispec
+  let all_functions () =
+  Globals.Functions.fold (fun kf acc -> kf :: acc) []
+end
+
+
+class externalCallsChecker ispec = object (self) 
+inherit genericNFRChecker ispec
+  method name = "ExternalCallsChecker"
+  method !vstmt () = 
+    (* match on Call**)
+    (* Check it is entry-point*)
+    (* Run iter_in_order *)
+end *)
 
 class onlyEntryPointsDeclaredChecker ispec = object (self)
   inherit genericNFRChecker ispec
@@ -151,7 +167,7 @@ class allEntryPointsDeclaredChecker ispec = object (self)
   method !vfile f =
     let prog_decls = List.filter_map
       (fun g -> match g with
-        | GFunDecl(_, vi, _) -> Some(vi)
+        | GFunDecl(_, vi, _) when vi.vstorage = NoStorage -> Some(vi)
         | _ -> None
       ) f.globals
     in
@@ -176,7 +192,7 @@ class allEntryPointsDefinedChecker ispec = object (self)
   method !vfile f =
     let prog_defs = List.filter_map
       (fun g -> match g with
-        | GFun(fd, _) -> Some(fd)
+        | GFun(fd, _) when fd.svar.vstorage = NoStorage -> Some(fd)
         | _ -> None
       ) f.globals
     in

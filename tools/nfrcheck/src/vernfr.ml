@@ -69,6 +69,9 @@ let run () =
           (new noPtrArithmeticsChecker ispec)#run ());
     (if CheckTypedefs.get () || CheckAll.get () then 
           (new typeDefChecker ispec)#run ())
+    (* ;
+    (if CheckExternalCallOrder.get () || CheckAll.get () then 
+          (new externalCallsChecker ispec)#run ()) *)
 
     (* add to frama-c main pipeline *)
     let () = Boot.Main.extend run

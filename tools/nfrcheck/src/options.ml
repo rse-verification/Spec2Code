@@ -26,6 +26,7 @@ end)
 
 
 
+
 module ISpecFile = Self.String
 (struct
   let option_name = "-nfr-ispec"
@@ -112,6 +113,11 @@ module CheckPtrLiterals = Self.False
     , which is defined as a cast from a int literal to a pointer"
 end)
 
+module CheckExternalCallOrder = Self.False 
+(struct 
+  let option_name = "-nfr-external-call-order"
+  let help = "when on (off by defualt), if the external call order in the interface specification is not respected."
+end)
 
 
 module CheckAll = Self.False
