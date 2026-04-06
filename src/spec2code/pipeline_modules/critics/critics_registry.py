@@ -13,14 +13,27 @@ from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 DEFAULT_MISRA_RULES_PATH = "src/spec2code/pipeline_modules/critics/misra_rules_2012.txt"
-DEFAULT_VERNFR_CONTROL_SCRIPT = "tools/nfrcheck/scripts/control-flow-check.sh"
-DEFAULT_VERNFR_DATA_SCRIPT = "tools/nfrcheck/scripts/data-flow-check.sh"
+_VERNFR_SCRIPTS_DIR = (
+    (_REPO_ROOT / "tools" / "nfrcheck" / "scripts")
+    if (_REPO_ROOT / "tools" / "nfrcheck" / "scripts").is_dir()
+    else (_REPO_ROOT / "tools" / "vernfr" / "scripts")
+)
+DEFAULT_VERNFR_CONTROL_SCRIPT = (
+    "tools/nfrcheck/scripts/control-flow-check.sh"
+    if (_REPO_ROOT / "tools" / "nfrcheck" / "scripts").is_dir()
+    else "tools/vernfr/scripts/control-flow-check.sh"
+)
+DEFAULT_VERNFR_DATA_SCRIPT = (
+    "tools/nfrcheck/scripts/data-flow-check.sh"
+    if (_REPO_ROOT / "tools" / "nfrcheck" / "scripts").is_dir()
+    else "tools/vernfr/scripts/data-flow-check.sh"
+)
 DEFAULT_FRAMAC_FORMAL_PATH = "case_studies/shutdown_algorithm/headers/shutdown_algorithm_ver.h"
 DEFAULT_VERNFR_INTERFACE_PATH = "case_studies/shutdown_algorithm/shutdown_algorithm.is"
 
 _MISRA_RULES_PATH_ABS = str(Path(__file__).with_name("misra_rules_2012.txt"))
-_CONTROL_FLOW_SCRIPT_ABS = str(_REPO_ROOT / "tools" / "nfrcheck" / "scripts" / "control-flow-check.sh")
-_DATA_FLOW_SCRIPT_ABS = str(_REPO_ROOT / "tools" / "nfrcheck" / "scripts" / "data-flow-check.sh")
+_CONTROL_FLOW_SCRIPT_ABS = str(_VERNFR_SCRIPTS_DIR / "control-flow-check.sh")
+_DATA_FLOW_SCRIPT_ABS = str(_VERNFR_SCRIPTS_DIR / "data-flow-check.sh")
 
 
 CriticBuilder = Callable[[Dict[str, Any], list, int], Critic]

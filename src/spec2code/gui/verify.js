@@ -145,15 +145,100 @@ async function openPicker({ targetId, kind, ext, append }) {
   pickerSearch.focus();
 }
 
+async function tryNativePicker({ targetId, kind, ext, append }) {
+  const res = await fetch("/api/native-pick", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: kind || "file", ext: ext || "" }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data || !data.ok) return "error";
+  if (data.cancelled) return "cancelled";
+  if (!data.path) return "error";
+  setFieldValue(targetId, data.path, !!append);
+  return "picked";
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const res = String(reader.result || "");
+        const comma = res.indexOf(",");
+        resolve(comma >= 0 ? res.slice(comma + 1) : res);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function tryBrowserPicker({ targetId, kind, ext, append }) {
+  if ((kind || "file") !== "file") return "unsupported";
+
+  const input = document.createElement("input");
+  input.type = "file";
+  const accept = String(ext || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(",");
+  if (accept) input.accept = accept;
+
+  const file = await new Promise((resolve) => {
+    input.addEventListener("change", () => {
+      resolve((input.files && input.files[0]) || null);
+    }, { once: true });
+    input.click();
+  });
+
+  if (!file) return "cancelled";
+  const content_b64 = await fileToBase64(file);
+  const res = await fetch("/api/upload-picker-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name || "picked_file", content_b64 }),
+  });
+  const data = await res.json();
+  if (!res.ok || !data || !data.ok || !data.path) return "error";
+  setFieldValue(targetId, data.path, !!append);
+  return "picked";
+}
+
 document.addEventListener("click", (ev) => {
   const btn = ev.target.closest(".picker-btn");
-  if (!btn) return;
-  openPicker({
+  if (!btn || ev.shiftKey) return;
+  const req = {
     targetId: btn.dataset.pickerTarget,
     kind: btn.dataset.pickerKind || "file",
     ext: btn.dataset.pickerExt || "",
     append: btn.dataset.pickerAppend === "1",
-  }).catch((e) => setStatus(`Failed to open picker: ${e}`, false));
+  };
+  tryNativePicker(req)
+    .then((state) => {
+      if (state === "picked" || state === "cancelled") return state;
+      return tryBrowserPicker(req);
+    })
+    .then((state) => {
+      if (state === "picked" || state === "cancelled") return;
+      return openPicker(req);
+    })
+    .catch((e) => setStatus(`Picker failed: ${e}`, false));
+});
+
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".picker-btn");
+  if (!btn || !ev.shiftKey) return;
+  const req = {
+    targetId: btn.dataset.pickerTarget,
+    kind: btn.dataset.pickerKind || "file",
+    ext: btn.dataset.pickerExt || "",
+    append: btn.dataset.pickerAppend === "1",
+  };
+  openPicker(req).catch((e) => setStatus(`Failed to open fallback picker: ${e}`, false));
 });
 
 pickerClose.addEventListener("click", closePicker);

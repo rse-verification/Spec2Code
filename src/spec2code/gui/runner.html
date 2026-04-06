@@ -57,7 +57,11 @@
 
         <div id="templateModeBox">
           <label>Template config</label>
-          <select id="templateSelect"></select>
+          <div class="input-picker-row">
+            <input id="templatePath" value="config/gui_templates/shutdown-algorithm-template.json" autocomplete="off" list="templateSuggestions" />
+            <button type="button" class="picker-btn" data-picker-target="templatePath" data-picker-kind="file" data-picker-ext=".json">Pick</button>
+          </div>
+          <datalist id="templateSuggestions"></datalist>
 
           <label>Available models (multi-select)</label>
           <div class="inline-tools">
@@ -89,6 +93,22 @@
               <div>
                 <label>AWS region</label>
                 <input id="awsRegion" value="eu-west-1" autocomplete="off" />
+              </div>
+            </div>
+            <div class="row">
+              <div>
+                <label>Case studies root (optional)</label>
+                <div class="input-picker-row">
+                  <input id="caseStudiesRoot" value="../spec2code_case_studies" autocomplete="off" />
+                  <button type="button" class="picker-btn" data-picker-target="caseStudiesRoot" data-picker-kind="dir">Pick</button>
+                </div>
+              </div>
+              <div>
+                <label>Input root (optional)</label>
+                <div class="input-picker-row">
+                  <input id="inputRoot" value="../spec2code_input" autocomplete="off" />
+                  <button type="button" class="picker-btn" data-picker-target="inputRoot" data-picker-kind="dir">Pick</button>
+                </div>
               </div>
             </div>
             <button id="applyRuntimeEnvBtn" type="button">Apply credentials</button>

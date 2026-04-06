@@ -79,10 +79,12 @@ dune install
 
 - Output root default: `../spec2code_output`
 - Case-study root default: `../spec2code_case_studies`
+- Input root default: `../spec2code_input`
 
 Override with:
 
 ```bash
 export SPEC2CODE_OUTPUT_ROOT=/absolute/path/to/spec2code_output
 export SPEC2CODE_CASE_STUDIES_ROOT=/absolute/path/to/spec2code_case_studies
+export SPEC2CODE_INPUT_ROOT=/absolute/path/to/spec2code_input
 ```

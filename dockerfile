@@ -103,13 +103,15 @@ RUN mkdir -p /root/.config/cppcheck \
       echo "WARN: MISRA rules file not found at src/spec2code/pipeline_modules/critics/misra_rules_2012.txt"; \
     fi
 
-# --- Build/install Vernfr (tools/nfrcheck) ---
+# --- Build/install Vernfr (tools/nfrcheck preferred, vernfr fallback) ---
 # Optional by default; enable with --build-arg BUILD_NFRCHECK=1
 ARG BUILD_NFRCHECK=0
 RUN if [ "$BUILD_NFRCHECK" = "1" ] && [ -d /workspace/tools/nfrcheck ]; then \
       bash -lc 'eval "$(opam env --switch=ocaml5)" && cd /workspace/tools/nfrcheck && dune build -j $(nproc) @install && dune install' ; \
+    elif [ "$BUILD_NFRCHECK" = "1" ] && [ -d /workspace/tools/vernfr ]; then \
+      bash -lc 'eval "$(opam env --switch=ocaml5)" && cd /workspace/tools/vernfr && dune build -j $(nproc) @install && dune install' ; \
     else \
-      echo "Skipping tools/nfrcheck build (BUILD_NFRCHECK=$BUILD_NFRCHECK)"; \
+      echo "Skipping Vernfr build (BUILD_NFRCHECK=$BUILD_NFRCHECK)"; \
     fi
 
 # --- Environment: prefer ocaml5 switch + venv ---

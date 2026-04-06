@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import copy
 import json
 import os
@@ -29,7 +30,8 @@ from spec2code.pipeline_modules.critics.critics_runner import build_critics_from
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GUI_DIR = Path(__file__).resolve().parent
 OUTPUT_ROOT = Path(os.getenv("SPEC2CODE_OUTPUT_ROOT", str(REPO_ROOT.parent / "spec2code_output"))).resolve()
-CASE_STUDIES_ROOT = Path(
+INPUT_ROOT_DEFAULT = Path(os.getenv("SPEC2CODE_INPUT_ROOT", str(REPO_ROOT.parent / "spec2code_input"))).resolve()
+CASE_STUDIES_ROOT_DEFAULT = Path(
     os.getenv("SPEC2CODE_CASE_STUDIES_ROOT", str(REPO_ROOT.parent / "spec2code_case_studies"))
 ).resolve()
 REPORTS_DIR = OUTPUT_ROOT / "reports"
@@ -46,6 +48,8 @@ ALLOWED_RUNTIME_ENV_KEYS = {
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
+    "SPEC2CODE_INPUT_ROOT",
+    "SPEC2CODE_CASE_STUDIES_ROOT",
 }
 
 GUI_SESSION_ENV_OVERRIDES: dict[str, str] = {}
@@ -61,6 +65,16 @@ _RUN_JOBS: dict[str, dict[str, Any]] = {}
 MOCK_MODELS = [
     "test-llm-shutdown",
 ]
+
+
+def _current_input_root() -> Path:
+    raw = GUI_SESSION_ENV_OVERRIDES.get("SPEC2CODE_INPUT_ROOT") or str(INPUT_ROOT_DEFAULT)
+    return Path(raw).resolve()
+
+
+def _current_case_studies_root() -> Path:
+    raw = GUI_SESSION_ENV_OVERRIDES.get("SPEC2CODE_CASE_STUDIES_ROOT") or str(CASE_STUDIES_ROOT_DEFAULT)
+    return Path(raw).resolve()
 
 
 def _parse_why3_solvers(output: str) -> list[str]:
@@ -168,7 +182,7 @@ def _resolve_runtime_path(path: str, *, base_dir: Path | None = None) -> Path:
         if repo_candidate.exists():
             return repo_candidate
         suffix = normalized.split("/", 1)[1]
-        return (CASE_STUDIES_ROOT / suffix).resolve()
+        return (_current_case_studies_root() / suffix).resolve()
 
     if normalized.startswith("output/"):
         repo_candidate = (REPO_ROOT / raw).resolve()
@@ -176,6 +190,33 @@ def _resolve_runtime_path(path: str, *, base_dir: Path | None = None) -> Path:
             return repo_candidate
         suffix = normalized.split("/", 1)[1]
         return (OUTPUT_ROOT / suffix).resolve()
+
+    if normalized.startswith("input/"):
+        repo_candidate = (REPO_ROOT / raw).resolve()
+        if repo_candidate.exists():
+            return repo_candidate
+        suffix = normalized.split("/", 1)[1]
+        return (_current_input_root() / suffix).resolve()
+
+    if base_dir is not None:
+        is_gui_tmp_base = False
+        try:
+            base_dir.resolve().relative_to(GUI_TMP_DIR.resolve())
+            is_gui_tmp_base = True
+        except Exception:
+            is_gui_tmp_base = False
+
+        if is_gui_tmp_base:
+            norm_slash = normalized.replace("\\", "/")
+            if norm_slash.startswith("../case_studies/") or norm_slash.startswith("./case_studies/"):
+                suffix = norm_slash.split("case_studies/", 1)[1]
+                return (_current_case_studies_root() / suffix).resolve()
+            if norm_slash.startswith("../output/") or norm_slash.startswith("./output/"):
+                suffix = norm_slash.split("output/", 1)[1]
+                return (OUTPUT_ROOT / suffix).resolve()
+            if norm_slash.startswith("../input/") or norm_slash.startswith("./input/"):
+                suffix = norm_slash.split("input/", 1)[1]
+                return (_current_input_root() / suffix).resolve()
 
     if base_dir is not None and (
         normalized.startswith("../")
@@ -200,7 +241,12 @@ def _display_path(path: Path) -> str:
     except Exception:
         pass
     try:
-        rel = resolved.relative_to(CASE_STUDIES_ROOT.resolve()).as_posix()
+        rel = resolved.relative_to(_current_input_root().resolve()).as_posix()
+        return f"<SPEC2CODE_INPUT_ROOT>/{rel}"
+    except Exception:
+        pass
+    try:
+        rel = resolved.relative_to(_current_case_studies_root().resolve()).as_posix()
         return f"<SPEC2CODE_CASE_STUDIES_ROOT>/{rel}"
     except Exception:
         return str(resolved)
@@ -228,6 +274,85 @@ def _text_response(handler: BaseHTTPRequestHandler, text: str, status: int = 200
         handler.wfile.write(body)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
         return
+
+
+def _native_pick_path(*, kind: str, ext: str = "") -> tuple[str | None, str | None, bool]:
+    if os.name != "nt":
+        return None, "Native picker is only supported on Windows.", False
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except Exception as exc:
+        return None, f"Failed to import tkinter for native picker: {exc}", False
+
+    root = None
+    try:
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+
+        kind_norm = str(kind or "file").strip().lower()
+        if kind_norm == "dir":
+            chosen = filedialog.askdirectory(mustexist=True, title="Select folder")
+        else:
+            exts = [x.strip() for x in str(ext or "").split(",") if x.strip()]
+            patterns: list[str] = []
+            for e in exts:
+                if e.startswith("."):
+                    patterns.append(f"*{e}")
+                elif e.startswith("*"):
+                    patterns.append(e)
+                else:
+                    patterns.append(f"*.{e}")
+            filetypes = []
+            if patterns:
+                filetypes.append(("Matching files", " ".join(patterns)))
+            filetypes.append(("All files", "*.*"))
+            chosen = filedialog.askopenfilename(title="Select file", filetypes=filetypes)
+
+        if not chosen:
+            return None, None, True
+        return os.path.normpath(str(chosen)), None, False
+    except Exception as exc:
+        return None, f"Native picker failed: {exc}", False
+    finally:
+        if root is not None:
+            try:
+                root.destroy()
+            except Exception:
+                pass
+
+
+def _stage_uploaded_picker_file(*, filename: str, content_b64: str) -> tuple[str | None, str | None]:
+    name = os.path.basename(str(filename or "").strip()) or "picked_file"
+    try:
+        raw = base64.b64decode(str(content_b64 or ""), validate=True)
+    except Exception:
+        return None, "Invalid base64 content."
+
+    max_bytes = 10 * 1024 * 1024
+    if len(raw) > max_bytes:
+        return None, "Uploaded file too large (max 10 MB)."
+
+    GUI_TMP_DIR.mkdir(parents=True, exist_ok=True)
+    uploads_dir = GUI_TMP_DIR / "picker_uploads"
+    uploads_dir.mkdir(parents=True, exist_ok=True)
+
+    stem, ext = os.path.splitext(name)
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", stem) or "picked_file"
+    safe_ext = re.sub(r"[^A-Za-z0-9.]", "", ext)[:16]
+    out_path = uploads_dir / f"{safe_stem}-{uuid.uuid4().hex[:10]}{safe_ext}"
+
+    try:
+        out_path.write_bytes(raw)
+    except Exception as exc:
+        return None, f"Failed to store uploaded file: {exc}"
+
+    return str(out_path), None
 
 
 def _serve_file(handler: BaseHTTPRequestHandler, file_path: Path, content_type: str) -> None:
@@ -395,6 +520,9 @@ def _sanitize_env_overrides(payload: Any) -> dict[str, str]:
 
 def _effective_runtime_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
+    env.setdefault("SPEC2CODE_OUTPUT_ROOT", str(OUTPUT_ROOT))
+    env.setdefault("SPEC2CODE_INPUT_ROOT", str(_current_input_root()))
+    env.setdefault("SPEC2CODE_CASE_STUDIES_ROOT", str(_current_case_studies_root()))
     env.update(GUI_SESSION_ENV_OVERRIDES)
     if extra:
         env.update(extra)
@@ -589,7 +717,7 @@ def _is_safe_path_under(path: Path, root: Path) -> bool:
 def _is_safe_runtime_path(path: Path) -> bool:
     return any(
         _is_safe_path_under(path, root)
-        for root in (REPO_ROOT, OUTPUT_ROOT, CASE_STUDIES_ROOT)
+        for root in (REPO_ROOT, OUTPUT_ROOT, _current_input_root(), _current_case_studies_root())
     )
 
 
@@ -610,29 +738,40 @@ def _list_repo_entries(
     max_items = max(1, min(int(limit or 200), 1000))
     out: list[str] = []
 
+    roots: list[tuple[Path, str]] = [
+        (REPO_ROOT, ""),
+        (_current_input_root(), "../spec2code_input/"),
+    ]
     skip_dirs = {".git", ".venv", "venv", "node_modules", "__pycache__", ".pytest_cache", "output"}
 
-    for root, dirs, files in os.walk(REPO_ROOT):
-        dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
-        root_path = Path(root)
-
-        if kind_norm == "dir":
-            rel = root_path.relative_to(REPO_ROOT).as_posix() if root_path != REPO_ROOT else "."
-            if rel != ".":
-                if (not query_norm) or (query_norm in rel.lower()):
-                    out.append(rel)
-                    if len(out) >= max_items:
-                        break
+    for base_root, display_prefix in roots:
+        if not base_root.exists():
             continue
+        for root, dirs, files in os.walk(base_root):
+            dirs[:] = [d for d in dirs if d not in skip_dirs and not d.startswith(".")]
+            root_path = Path(root)
 
-        for name in files:
-            p = root_path / name
-            rel = p.relative_to(REPO_ROOT).as_posix()
-            if exts_norm and p.suffix not in exts_norm:
+            if kind_norm == "dir":
+                rel = root_path.relative_to(base_root).as_posix() if root_path != base_root else "."
+                if rel != ".":
+                    shown = f"{display_prefix}{rel}" if display_prefix else rel
+                    if (not query_norm) or (query_norm in shown.lower()):
+                        out.append(shown)
+                        if len(out) >= max_items:
+                            break
                 continue
-            if query_norm and query_norm not in rel.lower():
-                continue
-            out.append(rel)
+
+            for name in files:
+                p = root_path / name
+                rel = p.relative_to(base_root).as_posix()
+                shown = f"{display_prefix}{rel}" if display_prefix else rel
+                if exts_norm and p.suffix not in exts_norm:
+                    continue
+                if query_norm and query_norm not in shown.lower():
+                    continue
+                out.append(shown)
+                if len(out) >= max_items:
+                    break
             if len(out) >= max_items:
                 break
         if len(out) >= max_items:
@@ -647,8 +786,8 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
     if not template_rel:
         return {"ok": False, "error": "Missing 'template'."}
 
-    template_path = (REPO_ROOT / template_rel).resolve()
-    if not _is_safe_repo_path(template_path) or not template_path.is_file():
+    template_path = _resolve_runtime_path(template_rel, base_dir=REPO_ROOT)
+    if not _is_safe_runtime_path(template_path) or not template_path.is_file():
         return {"ok": False, "error": f"Invalid template path: {template_rel}"}
 
     raw_models = payload.get("models", [])
@@ -1590,6 +1729,8 @@ class _Handler(BaseHTTPRequestHandler):
             "/api/run-custom-start",
             "/api/verify-files",
             "/api/session-env",
+            "/api/native-pick",
+            "/api/upload-picker-file",
         }:
             _text_response(self, "Not found", status=404)
             return
@@ -1615,6 +1756,10 @@ class _Handler(BaseHTTPRequestHandler):
             env_overrides = _sanitize_env_overrides(payload.get("env", {}))
             GUI_SESSION_ENV_OVERRIDES.clear()
             GUI_SESSION_ENV_OVERRIDES.update(env_overrides)
+            try:
+                _current_input_root().mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
             _json_response(
                 self,
                 {
@@ -1623,6 +1768,30 @@ class _Handler(BaseHTTPRequestHandler):
                 },
                 status=200,
             )
+            return
+
+        if path == "/api/native-pick":
+            kind = str(payload.get("kind", "file") or "file")
+            ext = str(payload.get("ext", "") or "")
+            chosen, err, cancelled = _native_pick_path(kind=kind, ext=ext)
+            if err:
+                _json_response(self, {"ok": False, "error": err}, status=500)
+                return
+            _json_response(self, {"ok": True, "cancelled": cancelled, "path": chosen or ""}, status=200)
+            return
+
+        if path == "/api/upload-picker-file":
+            filename = str(payload.get("filename", "") or "").strip()
+            content_b64 = str(payload.get("content_b64", "") or "").strip()
+            if not filename or not content_b64:
+                _json_response(self, {"ok": False, "error": "filename and content_b64 are required."}, status=400)
+                return
+            staged_path, err = _stage_uploaded_picker_file(filename=filename, content_b64=content_b64)
+            if err:
+                _json_response(self, {"ok": False, "error": err}, status=400)
+                return
+            assert staged_path is not None
+            _json_response(self, {"ok": True, "path": staged_path}, status=200)
             return
 
         if path == "/api/run-start":
@@ -1665,6 +1834,7 @@ def main() -> int:
     args = parser.parse_args()
 
     httpd = ThreadingHTTPServer((args.host, args.port), _Handler)
+    _current_input_root().mkdir(parents=True, exist_ok=True)
     print(f"spec2code GUI runner available at http://{args.host}:{args.port}/runner")
     print(f"spec2code GUI results available at http://{args.host}:{args.port}/results")
     print(f"spec2code GUI verify available at http://{args.host}:{args.port}/verify")

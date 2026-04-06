@@ -90,7 +90,8 @@ def render_last_run_report(
 ) -> None:
     gui_dir = Path(__file__).resolve().parent
     repo_root = Path(__file__).resolve().parents[3]
-    reports_dir = repo_root / "output" / "reports"
+    output_root = Path(os.getenv("SPEC2CODE_OUTPUT_ROOT", str(repo_root.parent / "spec2code_output"))).resolve()
+    reports_dir = output_root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
 
     index_path = gui_dir / "index.html"

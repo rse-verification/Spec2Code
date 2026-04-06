@@ -1,4 +1,5 @@
-const templateSelect = document.getElementById("templateSelect");
+const templatePath = document.getElementById("templatePath");
+const templateSuggestions = document.getElementById("templateSuggestions");
 const modelsSelect = document.getElementById("modelsSelect");
 const nPrograms = document.getElementById("nPrograms");
 const temperature = document.getElementById("temperature");
@@ -30,6 +31,8 @@ const anthropicApiKey = document.getElementById("anthropicApiKey");
 const openaiApiKey = document.getElementById("openaiApiKey");
 const awsProfile = document.getElementById("awsProfile");
 const awsRegion = document.getElementById("awsRegion");
+const caseStudiesRoot = document.getElementById("caseStudiesRoot");
+const inputRoot = document.getElementById("inputRoot");
 const applyRuntimeEnvBtn = document.getElementById("applyRuntimeEnvBtn");
 const runtimeEnvStatus = document.getElementById("runtimeEnvStatus");
 const runBtn = document.getElementById("runBtn");
@@ -111,15 +114,18 @@ function setMode(nextMode) {
 
 async function loadTemplates() {
   const data = await fetchJson("/api/templates");
-  templateSelect.innerHTML = "";
-  (data.templates || []).forEach((tpl) => {
+  const templates = Array.isArray(data.templates) ? data.templates : [];
+  if (templateSuggestions) templateSuggestions.innerHTML = "";
+  templates.forEach((tpl) => {
+    if (!templateSuggestions) return;
     const opt = document.createElement("option");
     opt.value = tpl;
-    opt.textContent = tpl;
-    templateSelect.appendChild(opt);
+    templateSuggestions.appendChild(opt);
   });
-  const shutdown = (data.templates || []).find((x) => x.includes("shutdown-algorithm"));
-  if (shutdown) templateSelect.value = shutdown;
+  const shutdown = templates.find((x) => x.includes("shutdown-algorithm"));
+  if (templatePath && shutdown && !String(templatePath.value || "").trim()) {
+    templatePath.value = shutdown;
+  }
 }
 
 function formatModelLabel(name) {
@@ -170,6 +176,8 @@ function collectEnvOverrides() {
   put("OPENAI_API_KEY", openaiApiKey && openaiApiKey.value);
   put("AWS_PROFILE", awsProfile && awsProfile.value);
   put("AWS_REGION", awsRegion && awsRegion.value);
+  put("SPEC2CODE_CASE_STUDIES_ROOT", caseStudiesRoot && caseStudiesRoot.value);
+  put("SPEC2CODE_INPUT_ROOT", inputRoot && inputRoot.value);
   return env;
 }
 
@@ -256,6 +264,73 @@ async function openPicker({ targetId, kind, ext, append }) {
   pickerSearch.focus();
 }
 
+async function tryNativePicker({ targetId, kind, ext, append }) {
+  const res = await fetch("/api/native-pick", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: kind || "file", ext: ext || "" }),
+  });
+  let data = null;
+  try {
+    data = await res.json();
+  } catch (_e) {
+    return "error";
+  }
+  if (!res.ok || !data || !data.ok) return "error";
+  if (data.cancelled) return "cancelled";
+  if (!data.path) return "error";
+  setFieldValue(targetId, data.path, !!append);
+  return "picked";
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const res = String(reader.result || "");
+        const comma = res.indexOf(",");
+        resolve(comma >= 0 ? res.slice(comma + 1) : res);
+      } catch (e) {
+        reject(e);
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function tryBrowserPicker({ targetId, kind, ext, append }) {
+  if ((kind || "file") !== "file") return "unsupported";
+
+  const input = document.createElement("input");
+  input.type = "file";
+  const accept = String(ext || "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(",");
+  if (accept) input.accept = accept;
+
+  const file = await new Promise((resolve) => {
+    input.addEventListener("change", () => {
+      resolve((input.files && input.files[0]) || null);
+    }, { once: true });
+    input.click();
+  });
+
+  if (!file) return "cancelled";
+  const content_b64 = await fileToBase64(file);
+  const data = await fetchJson("/api/upload-picker-file", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename: file.name || "picked_file", content_b64 }),
+  });
+  if (!data || !data.ok || !data.path) return "error";
+  setFieldValue(targetId, data.path, !!append);
+  return "picked";
+}
+
 function buildCustomConfigObject() {
   const criticPayload = criticsUi.collect();
   const selectedCritics = new Set(criticPayload.critics || []);
@@ -315,13 +390,35 @@ modeCustom.addEventListener("click", () => setMode("custom"));
 
 document.addEventListener("click", (ev) => {
   const btn = ev.target.closest(".picker-btn");
-  if (!btn) return;
-  openPicker({
+  if (!btn || ev.shiftKey) return;
+  const req = {
     targetId: btn.dataset.pickerTarget,
     kind: btn.dataset.pickerKind || "file",
     ext: btn.dataset.pickerExt || "",
     append: btn.dataset.pickerAppend === "1",
-  }).catch((e) => setStatus(`Failed to open picker: ${e}`, false));
+  };
+  tryNativePicker(req)
+    .then((state) => {
+      if (state === "picked" || state === "cancelled") return state;
+      return tryBrowserPicker(req);
+    })
+    .then((state) => {
+      if (state === "picked" || state === "cancelled") return;
+      return openPicker(req);
+    })
+    .catch((e) => setStatus(`Picker failed: ${e}`, false));
+});
+
+document.addEventListener("click", (ev) => {
+  const btn = ev.target.closest(".picker-btn");
+  if (!btn || !ev.shiftKey) return;
+  const req = {
+    targetId: btn.dataset.pickerTarget,
+    kind: btn.dataset.pickerKind || "file",
+    ext: btn.dataset.pickerExt || "",
+    append: btn.dataset.pickerAppend === "1",
+  };
+  openPicker(req).catch((e) => setStatus(`Failed to open fallback picker: ${e}`, false));
 });
 
 pickerClose.addEventListener("click", closePicker);
@@ -363,7 +460,7 @@ runBtn.addEventListener("click", async () => {
   try {
     payload = mode === "template"
       ? {
-          template: templateSelect.value,
+          template: String(templatePath && templatePath.value ? templatePath.value : "").trim(),
           models: selectedModels(),
           manual_models: "",
           env_overrides: collectEnvOverrides(),
@@ -405,13 +502,12 @@ runBtn.addEventListener("click", async () => {
       if (!done) {
         await new Promise((resolve) => setTimeout(resolve, 800));
       } else if (data.ok && Number(data.returncode ?? 1) === 0) {
-        setStatus("Run completed.", true);
+        setStatus("Run completed. Open Results page when ready.", true);
         if (Array.isArray(data.warnings) && data.warnings.length) {
           statusBox.textContent += ` (${data.warnings.join(" ")})`;
         }
         reportLink.href = "/results";
         reportLink.classList.remove("hidden");
-        window.location.href = "/results";
       } else {
         setStatus(data.error || `Run failed (exit=${data.returncode ?? "?"})`, false);
         if (Array.isArray(data.warnings) && data.warnings.length) {

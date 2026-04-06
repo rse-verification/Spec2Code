@@ -205,11 +205,16 @@ By default, case study assets are also loaded from outside the repository:
 
 - `../spec2code_case_studies` (resolved from repo root)
 
+Additional user-managed input assets can be stored in:
+
+- `../spec2code_input` (resolved from repo root; shown in GUI file picker)
+
 Override this location with:
 
 ```bash
 export SPEC2CODE_OUTPUT_ROOT=/absolute/path/to/spec2code_output
 export SPEC2CODE_CASE_STUDIES_ROOT=/absolute/path/to/spec2code_case_studies
+export SPEC2CODE_INPUT_ROOT=/absolute/path/to/spec2code_input
 ```
 
 GUI template files are read from:

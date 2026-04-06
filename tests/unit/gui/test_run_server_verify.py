@@ -170,17 +170,22 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
 @pytest.mark.unit
 def test_list_repo_entries_files_and_dirs_with_filters(tmp_path, monkeypatch):
     monkeypatch.setattr(run_server, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(run_server, "INPUT_ROOT_DEFAULT", tmp_path / "spec2code_input")
     _write(tmp_path / "src" / "a.c", "int a;\n")
     _write(tmp_path / "src" / "b.h", "#pragma once\n")
     _write(tmp_path / "docs" / "readme.md", "hello\n")
     _write(tmp_path / "output" / "reports" / "latest-verify.json", "{}\n")
     _write(tmp_path / "output" / "tmp.c", "int o;\n")
+    _write(tmp_path / "spec2code_input" / "sgmm" / "sgmm.is", "module sgmm\n")
 
     files = run_server._list_repo_entries(kind="file", exts=[".c", ".h"], limit=20)
     assert "src/a.c" in files
     assert "src/b.h" in files
     assert "docs/readme.md" not in files
     assert "output/tmp.c" not in files
+
+    is_files = run_server._list_repo_entries(kind="file", exts=[".is"], limit=20)
+    assert "../spec2code_input/sgmm/sgmm.is" in is_files
 
     dirs = run_server._list_repo_entries(kind="dir", query="src", limit=20)
     assert "src" in dirs
