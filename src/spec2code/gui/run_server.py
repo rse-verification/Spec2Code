@@ -1245,6 +1245,14 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
     if generated_header_path is not None and not generated_header_path.is_file():
         return {"ok": False, "error": f"generated_header_path not found: {generated_header_path}"}
 
+    test_harness_path, err = _resolve_repo_path(
+        payload.get("test_harness_path"), required=False, label="test_harness_path"
+    )
+    if err:
+        return {"ok": False, "error": err}
+    if test_harness_path is not None and not test_harness_path.is_file():
+        return {"ok": False, "error": f"test_harness_path not found: {test_harness_path}"}
+
     include_dirs_raw = payload.get("include_dirs", [])
     include_dirs: list[str] = []
     for d in _split_csv(include_dirs_raw):
@@ -1542,6 +1550,9 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
     if generated_files:
         critic_context = dict(critic_context)
         critic_context["generated_files"] = generated_files
+    if test_harness_path is not None:
+        critic_context = dict(critic_context)
+        critic_context["test_harness_path"] = str(test_harness_path)
 
     try:
         critic_instances = build_critics_from_names(
@@ -1579,6 +1590,7 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
             "copied_headers": copied_headers,
             "staging_dirs": [str(p) for p in temp_dirs],
             "formal_c_path": str(spec_c_path) if spec_c_path is not None else None,
+            "test_harness_path": str(test_harness_path) if test_harness_path is not None else None,
             "critics": critics,
             "requested_critics": requested_critics,
             "timeout": timeout,

@@ -8,6 +8,7 @@ from spec2code.pipeline_modules.critics.critics_compile import CompileCritic
 from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic
 from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
+from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -80,6 +81,9 @@ def _build_vernfr_data(opts: Dict[str, Any], _solvers: list, timeout: int) -> Cr
     setattr(critic, "name", "vernfr-data-flow")
     return critic
 
+def _build_valgrind(_opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
+    return ValgrindCritic()
+
 
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "compile": _build_compile,
@@ -87,6 +91,7 @@ CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "framac-wp": _build_framac_wp,
     "vernfr-control-flow": _build_vernfr_control,
     "vernfr-data-flow": _build_vernfr_data,
+    "valgrind": _build_valgrind,
 }
 
 
@@ -96,6 +101,7 @@ DEFAULT_CRITIC_NAMES: List[str] = [
     "framac-wp",
     "vernfr-control-flow",
     "vernfr-data-flow",
+    "valgrind",
 ]
 
 
@@ -172,6 +178,14 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "label": "Data Script Path",
                 "default": DEFAULT_VERNFR_DATA_SCRIPT,
             },
+        ],
+    },
+    {
+        "name": "valgrind",
+        "label": "Valgrind",
+        "default_enabled": True,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
         ],
     },
 ]

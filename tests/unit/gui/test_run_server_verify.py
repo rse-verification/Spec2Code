@@ -105,6 +105,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     monkeypatch.setattr(run_server, "REPORTS_DIR", tmp_path / "output" / "reports")
     c_file = _write(tmp_path / "src" / "main.c", "int main(void){return 0;}\n")
     hdr_file = _write(tmp_path / "src" / "main.h", "#pragma once\n")
+    harness_file = _write(tmp_path / "tests" / "main_harness.c", '#include "main.c"\n')
     include_dir = tmp_path / "include"
     include_dir.mkdir(parents=True, exist_ok=True)
 
@@ -126,6 +127,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
         {
             "c_file_path": str(c_file),
             "generated_header_path": str(hdr_file),
+            "test_harness_path": str(harness_file),
             "critics": ["compile", "framac-wp"],
             "timeout": 23,
             "include_dirs": [str(include_dir)],
@@ -139,6 +141,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert out["ok"] is True
     assert out["inputs"]["timeout"] == 23
     assert out["inputs"]["critics"] == ["compile", "framac-wp"]
+    assert out["inputs"]["test_harness_path"] == str(harness_file)
 
     build_kwargs = captured["build"]
     assert build_kwargs["names"] == ["compile", "framac-wp"]
@@ -160,6 +163,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert run_kwargs["spec_c_path"] is None
     assert run_kwargs["base_context"]["debug"] is True
     assert run_kwargs["base_context"]["generated_header_path"] == str(hdr_file)
+    assert run_kwargs["base_context"]["test_harness_path"] == str(harness_file)
     assert run_kwargs["base_context"]["generated_files"] == [str(c_file)]
     assert run_kwargs["critic_configs"]["framac-wp"]["framac_wp_no_let"] is True
 

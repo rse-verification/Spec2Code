@@ -1,5 +1,6 @@
 const cFilePath = document.getElementById("cFilePath");
 const generatedHeaderPath = document.getElementById("generatedHeaderPath");
+const testHarnessPath = document.getElementById("testHarnessPath");
 const includeDirs = document.getElementById("includeDirs");
 const defines = document.getElementById("defines");
 const generatedFiles = document.getElementById("generatedFiles");
@@ -258,6 +259,7 @@ verifyBtn.addEventListener("click", async () => {
   const payload = {
     c_file_path: cFilePath.value,
     generated_header_path: generatedHeaderPath.value,
+    test_harness_path: testHarnessPath.value,
     critics: criticPayload.critics,
     critic_options: criticPayload.critic_options,
     include_dirs: splitCsv(includeDirs.value),

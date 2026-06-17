@@ -60,7 +60,7 @@ def test_compile_run_success_no_warnings(tmp_path, monkeypatch):
     result = critic.run(
         {
             "c_file_path": str(c_file),
-            "context": {"compiled_output_path": str(compiled), "remove_compiled": True},
+            "context": {"compiled_output_path": str(compiled)},
         }
     )
 
@@ -68,7 +68,7 @@ def test_compile_run_success_no_warnings(tmp_path, monkeypatch):
     assert result["score"] == 1.0
     assert result["summary"] == "Compilation succeeded."
     assert result["findings"] == []
-    assert not compiled.exists()
+    assert compiled.exists()
 
 
 @pytest.mark.unit
@@ -165,6 +165,37 @@ def test_compile_run_builds_command_with_context_options(tmp_path, monkeypatch):
     assert "-DX=1" in seen["cmd"]
     assert f"-I{include_dir}" in seen["cmd"] or f"'-I{include_dir}'" in seen["cmd"]
     assert "-Wall" in seen["cmd"]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_run_uses_test_harness_as_source_when_provided(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    harness = tmp_path / "harness.c"
+    harness.write_text('#include "main.c"\n', encoding="utf-8")
+
+    seen = {}
+
+    def _fake_run_command(cmd, timeout):
+        seen["cmd"] = cmd
+        return "", "", True
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
+
+    critic = critics_compile.CompileCritic()
+    result = critic.run(
+        {
+            "c_file_path": str(c_file),
+            "context": {
+                "test_harness_path": str(harness),
+                "compiled_output_path": str(tmp_path / "main.out"),
+            },
+        }
+    )
+
+    assert result["success"] is True
+    assert str(harness) in seen["cmd"]
+    assert " -c " not in f" {seen['cmd']} "
 
 
 @pytest.mark.unit

@@ -14,12 +14,12 @@ class CompileCritic:
 
     Uses inp["c_file_path"].
     Optional via inp.get("context", {}):
-      - compiled_output_path: str   (default: "<c_file_path>.o")
-      - remove_compiled: bool       (default: True)
+      - compiled_output_path: str   (default: "<c_file_path>.out")
       - gcc: str                    (default: "gcc")
       - gcc_flags: List[str]        (default: ["-c"])
       - include_dirs: List[str]     (default: [])
       - defines: List[str]          (default: [])
+      - test_harness_path: str      (optional; compile/link this harness instead of c_file_path)
     """
 
     name = "compile"
@@ -29,10 +29,22 @@ class CompileCritic:
         timeout = int(inp.get("timeout", 60))
         ctx: Dict[str, Any] = dict(inp.get("context", {}))
 
-        compiled_output_path = str(ctx.get("compiled_output_path", f"{c_file_path}.o"))
-        remove_compiled = bool(ctx.get("remove_compiled", True))
+        test_harness_path = str(ctx.get("test_harness_path", "") or "").strip()
+
+        compiled_output_path = str(ctx.get("compiled_output_path", f"{c_file_path}.out"))
+
         gcc = str(ctx.get("gcc", "gcc"))
-        gcc_flags: List[str] = list(ctx.get("gcc_flags", ["-c"]))
+
+        gcc_flags: List[str] = list(ctx.get("gcc_flags", []))
+
+        # Don't link if no test case
+        if not test_harness_path and "-c" not in gcc_flags:
+            gcc_flags.append("-c")
+
+        # Only one source file
+        # Harness should include generated c file directly
+        source_file = test_harness_path if test_harness_path else c_file_path
+
         include_dirs: List[str] = list(ctx.get("include_dirs", []))
         defines: List[str] = list(ctx.get("defines", []))
         extra_args: List[str] = list(inp.get("extra_args", []))
@@ -55,6 +67,24 @@ class CompileCritic:
                 "raw_output": msg,
             }
 
+        if test_harness_path and not os.path.exists(test_harness_path):
+            msg = f"Test harness file does not exist: {test_harness_path}"
+            return {
+                "tool": self.name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Compilation failed.",
+                "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                "findings": [{
+                    "tool": self.name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": test_harness_path},
+                    "rule": None,
+                }],
+                "raw_output": msg,
+            }
+
         out_dir = os.path.dirname(compiled_output_path) or "."
         os.makedirs(out_dir, exist_ok=True)
 
@@ -66,7 +96,7 @@ class CompileCritic:
             + gcc_flags
             + def_args
             + inc_args
-            + [c_file_path, "-o", compiled_output_path]
+            + [source_file, "-o", compiled_output_path]
             + extra_args
         )
 
@@ -112,13 +142,6 @@ class CompileCritic:
 
         has_error = bool(diagnostics["errors"])
         has_warning = bool(diagnostics["warnings"])
-
-        if not has_error and remove_compiled:
-            try:
-                if os.path.exists(compiled_output_path):
-                    os.remove(compiled_output_path)
-            except OSError:
-                pass
 
         if not has_error and not has_warning:
             return {

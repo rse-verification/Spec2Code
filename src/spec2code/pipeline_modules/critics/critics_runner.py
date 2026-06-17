@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -80,10 +81,13 @@ def run_critics_on_artifacts(
         ctx_base["include_dirs"] = list(include_dirs)
     if defines:
         ctx_base["defines"] = list(defines)
-    if compiled_output_path is not None:
-        ctx_base["compiled_output_path"] = compiled_output_path
     if remove_compiled is not None:
         ctx_base["remove_compiled"] = remove_compiled
+
+    if compiled_output_path is None:
+        compiled_output_path = f"{raw_c_path}.out"
+
+    ctx_base["compiled_output_path"] = compiled_output_path
 
     targets = dict(critic_targets or {})
     configs = dict(critic_configs or {})
@@ -100,6 +104,10 @@ def run_critics_on_artifacts(
     overall_score = 1.0
 
     critics_list = list(critics)
+    
+    # Make sure compile always runs first because of dependencies
+    critics_list.sort(key=lambda c: 0 if getattr(c, "name", "") == "compile" else 1)
+
     total_critics = len(critics_list)
     if total_critics:
         print(f"[critics] running {total_critics} critic(s)...")
@@ -135,7 +143,7 @@ def run_critics_on_artifacts(
                 continue
             c_path = spec_c_path
         else:
-            c_path = raw_c_path
+            c_path = raw_c_path        
 
         inp: CriticInput = {
             "c_file_path": c_path,
@@ -157,6 +165,13 @@ def run_critics_on_artifacts(
 
         status = "ok" if r.get("success") else "fail"
         print(f"[critics] {idx}/{total_critics} done: {name} {status} ({_fmt_duration(elapsed)})")
+
+    if remove_compiled and compiled_output_path:
+        try:
+            if os.path.exists(compiled_output_path):
+                os.remove(compiled_output_path)
+        except OSError:
+            pass
 
     return {
         "critics_success": overall_success,
