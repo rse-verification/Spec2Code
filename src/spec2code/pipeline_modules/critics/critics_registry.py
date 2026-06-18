@@ -81,8 +81,10 @@ def _build_vernfr_data(opts: Dict[str, Any], _solvers: list, timeout: int) -> Cr
     setattr(critic, "name", "vernfr-data-flow")
     return critic
 
-def _build_valgrind(_opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
-    return ValgrindCritic()
+def _build_valgrind(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
+    use_massif = bool(opts.get("massif", False))
+    use_memcheck = bool(opts.get("memcheck", True))
+    return ValgrindCritic(massif=use_massif, memcheck=use_memcheck)
 
 
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
@@ -185,6 +187,8 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
         "default_enabled": True,
         "options": [
             {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {"key": "memcheck", "type": "bool", "label": "Memcheck", "default": True},
+            {"key": "massif", "type": "bool", "label": "Massif", "default": False},
         ],
     },
 ]

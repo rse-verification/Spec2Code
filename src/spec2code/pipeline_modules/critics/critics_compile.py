@@ -162,6 +162,7 @@ class CompileCritic:
             res = run_command(cmd, timeout)
         finally:
             _cleanup_paths(cleanup_paths)
+        
         timing: Dict[str, float] = {}
         if isinstance(res, tuple) and len(res) >= 5:
             stdout_str, stderr_str, completed, _exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})

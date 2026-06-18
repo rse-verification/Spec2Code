@@ -26,6 +26,12 @@
       "framac-wp",
       "cppcheck-misra",
       "valgrind"
-    ]
+    ],
+    "critic_options": {
+      "valgrind": {
+        "massif": false,
+        "memcheck": true
+      }
+    }
   }
 ]
