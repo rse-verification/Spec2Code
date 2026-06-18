@@ -183,8 +183,7 @@ class ValgrindCritic:
 
         return {
             "summary": (
-                f"Massif analysis completed. Peak heap: {peak_heap} bytes; "
-                f"peak total memory including heap overhead and stacks: {peak_total} bytes."
+                f"Massif analysis completed. Peak heap: {peak_heap} bytes."
             ),
             "peak_heap_bytes": peak_heap,
             "metrics": {

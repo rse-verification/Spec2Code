@@ -171,6 +171,9 @@ function renderCriticsSummary(data) {
           ${metrics.warnings != null ? `<div class="muted">warnings: ${metrics.warnings}</div>` : ""}
           ${metrics.compiled_output_path ? `<div class="muted">output: ${escapeHtml(metrics.compiled_output_path)}</div>` : ""}
           ${metrics.goals_ratio ? `<div class="muted">goals: ${escapeHtml(metrics.goals_ratio)}</div>` : ""}
+          ${metrics.peak_heap_bytes != null ? `<div class="muted">peak heap usage: ${escapeHtml(metrics.peak_heap_bytes)} bytes</div>` : ""}
+          ${metrics.peak_stack_bytes != null ? `<div class="muted">peak stack usage: ${escapeHtml(metrics.peak_stack_bytes)} bytes</div>` : ""}
+          ${metrics.peak_total_bytes != null ? `<div class="muted">peak total usage: ${escapeHtml(metrics.peak_total_bytes)} bytes</div>` : ""}
           ${native.preprocessed_acsl_path ? `<div class="muted">pp acsl: ${escapeHtml(native.preprocessed_acsl_path)}</div>` : ""}
         </div>
       `;

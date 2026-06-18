@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from typing import Any, Dict, List, Tuple
 
 from spec2code.pipeline_modules.subprocess_creator import run_command
@@ -20,6 +21,7 @@ class CompileCritic:
       - include_dirs: List[str]     (default: [])
       - defines: List[str]          (default: [])
       - test_harness_path: str      (optional; compile/link this harness instead of c_file_path)
+      - test_harness_source_name: str (optional; filename/path the harness includes for c_file_path)
     """
 
     name = "compile"
@@ -30,6 +32,7 @@ class CompileCritic:
         ctx: Dict[str, Any] = dict(inp.get("context", {}))
 
         test_harness_path = str(ctx.get("test_harness_path", "") or "").strip()
+        test_harness_source_name = str(ctx.get("test_harness_source_name", "") or "").strip()
 
         compiled_output_path = str(ctx.get("compiled_output_path", f"{c_file_path}.out"))
 
@@ -85,6 +88,58 @@ class CompileCritic:
                 "raw_output": msg,
             }
 
+        cleanup_paths: List[str] = []
+        if test_harness_path and test_harness_source_name:
+            normalized_source_name = os.path.normpath(test_harness_source_name)
+            if (
+                os.path.isabs(normalized_source_name)
+                or normalized_source_name == ".."
+                or normalized_source_name.startswith(f"..{os.sep}")
+            ):
+                msg = f"Invalid test_harness_source_name: {test_harness_source_name}"
+                return {
+                    "tool": self.name,
+                    "success": False,
+                    "score": 0.0,
+                    "summary": "Compilation failed.",
+                    "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                    "findings": [{
+                        "tool": self.name,
+                        "severity": "error",
+                        "message": msg,
+                        "location": {"file": test_harness_path},
+                        "rule": None,
+                    }],
+                    "raw_output": msg,
+                }
+
+            source_alias_path = os.path.join(os.path.dirname(c_file_path) or ".", normalized_source_name)
+            if os.path.abspath(source_alias_path) != os.path.abspath(c_file_path):
+                if os.path.exists(source_alias_path):
+                    msg = f"Cannot stage harness source alias because file already exists: {source_alias_path}"
+                    return {
+                        "tool": self.name,
+                        "success": False,
+                        "score": 0.0,
+                        "summary": "Compilation failed.",
+                        "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                        "findings": [{
+                            "tool": self.name,
+                            "severity": "error",
+                            "message": msg,
+                            "location": {"file": source_alias_path},
+                            "rule": None,
+                        }],
+                        "raw_output": msg,
+                    }
+                os.makedirs(os.path.dirname(source_alias_path) or ".", exist_ok=True)
+                shutil.copy2(c_file_path, source_alias_path)
+                cleanup_paths.append(source_alias_path)
+
+            alias_include_dir = os.path.dirname(source_alias_path) or "."
+            if alias_include_dir not in include_dirs:
+                include_dirs.append(alias_include_dir)
+
         out_dir = os.path.dirname(compiled_output_path) or "."
         os.makedirs(out_dir, exist_ok=True)
 
@@ -103,7 +158,10 @@ class CompileCritic:
         # quote only when needed
         cmd = " ".join(f"'{p}'" if any(ch.isspace() for ch in p) else p for p in cmd_parts)
 
-        res = run_command(cmd, timeout)
+        try:
+            res = run_command(cmd, timeout)
+        finally:
+            _cleanup_paths(cleanup_paths)
         timing: Dict[str, float] = {}
         if isinstance(res, tuple) and len(res) >= 5:
             stdout_str, stderr_str, completed, _exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
@@ -246,3 +304,12 @@ def _extract_diagnostics(raw: str) -> Dict[str, List[str]]:
         if "error:" in lower or "fatal error" in lower or "undefined reference" in lower:
             errors.append(s)
     return {"warnings": warnings, "errors": errors}
+
+
+def _cleanup_paths(paths: List[str]) -> None:
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass

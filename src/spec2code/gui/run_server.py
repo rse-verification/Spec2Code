@@ -848,6 +848,7 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
             "natural_spec_path",
             "interface_path",
             "verification_header_path",
+            "test_harness_path",
             "headers_dir",
         ]:
             if key in cfg and isinstance(cfg[key], str):
@@ -1097,6 +1098,7 @@ def _run_pipeline_from_custom(payload: dict[str, Any], *, defer_execute: bool = 
             "natural_spec_path",
             "interface_path",
             "verification_header_path",
+            "test_harness_path",
             "headers_dir",
         ]:
             if key in cfg and isinstance(cfg[key], str):
@@ -1252,6 +1254,8 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
         return {"ok": False, "error": err}
     if test_harness_path is not None and not test_harness_path.is_file():
         return {"ok": False, "error": f"test_harness_path not found: {test_harness_path}"}
+
+    test_harness_source_name = str(payload.get("test_harness_source_name", "") or "").strip()
 
     include_dirs_raw = payload.get("include_dirs", [])
     include_dirs: list[str] = []
@@ -1553,6 +1557,8 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
     if test_harness_path is not None:
         critic_context = dict(critic_context)
         critic_context["test_harness_path"] = str(test_harness_path)
+        if test_harness_source_name:
+            critic_context["test_harness_source_name"] = test_harness_source_name
 
     try:
         critic_instances = build_critics_from_names(
@@ -1591,6 +1597,7 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
             "staging_dirs": [str(p) for p in temp_dirs],
             "formal_c_path": str(spec_c_path) if spec_c_path is not None else None,
             "test_harness_path": str(test_harness_path) if test_harness_path is not None else None,
+            "test_harness_source_name": test_harness_source_name or None,
             "critics": critics,
             "requested_critics": requested_critics,
             "timeout": timeout,

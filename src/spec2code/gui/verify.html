@@ -47,10 +47,18 @@
               <button type="button" class="picker-btn" data-picker-target="generatedHeaderPath" data-picker-kind="file" data-picker-ext=".h">Pick</button>
             </div>
 
-            <label>Test harness C path (optional)</label>
-            <div class="input-picker-row">
-              <input id="testHarnessPath" placeholder="case_studies/.../headers/module_tests.c" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
-              <button type="button" class="picker-btn" data-picker-target="testHarnessPath" data-picker-kind="file" data-picker-ext=".c">Pick</button>
+            <div class="harness-fields-row">
+              <div>
+                <label>Test harness C path (optional)</label>
+                <div class="input-picker-row">
+                  <input id="testHarnessPath" placeholder="case_studies/.../headers/module_tests.c" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+                  <button type="button" class="picker-btn" data-picker-target="testHarnessPath" data-picker-kind="file" data-picker-ext=".c">Pick</button>
+                </div>
+              </div>
+              <div>
+                <label>Expected source name</label>
+                <input id="testHarnessSourceName" placeholder="module.c" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+              </div>
             </div>
 
             <label>Critics</label>

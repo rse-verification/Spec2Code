@@ -181,6 +181,20 @@
             <button type="button" class="picker-btn" data-picker-target="customVerificationHeaderPath" data-picker-kind="file" data-picker-ext=".h">Pick</button>
           </div>
 
+          <div class="harness-fields-row">
+            <div>
+              <label>Test harness C path (optional)</label>
+              <div class="input-picker-row">
+                <input id="customTestHarnessPath" value="../spec2code_case_studies/shutdown_algorithm/headers/shutdown_algorithm_tests.c" placeholder="case_studies/.../headers/module_tests.c" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+                <button type="button" class="picker-btn" data-picker-target="customTestHarnessPath" data-picker-kind="file" data-picker-ext=".c">Pick</button>
+              </div>
+            </div>
+            <div>
+              <label>Expected source name</label>
+              <input id="customTestHarnessSourceName" value="shutdown_algorithm.c" placeholder="module.c" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
+            </div>
+          </div>
+
           <label>Include dirs (comma-separated)</label>
           <div class="input-picker-row">
             <input id="customIncludeDirs" value="../spec2code_case_studies/shutdown_algorithm/headers" autocomplete="off" />

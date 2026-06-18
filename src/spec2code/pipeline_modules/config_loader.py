@@ -267,6 +267,17 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
             )
         critic_options[critic_name] = dict(options)
 
+    test_harness_path = _optional_path(cfg, "test_harness_path", base_dir)
+    if test_harness_path:
+        _require_file(test_harness_path, "test_harness_path")
+        critic_context.setdefault("test_harness_path", test_harness_path)
+
+    test_harness_source_name = cfg.get("test_harness_source_name")
+    if test_harness_source_name is not None:
+        if not isinstance(test_harness_source_name, str) or not test_harness_source_name.strip():
+            raise ValueError("Config error: 'test_harness_source_name' must be a non-empty string if present.")
+        critic_context.setdefault("test_harness_source_name", test_harness_source_name.strip())
+
     # Backward compatibility for legacy Frama-C specific keys.
     if "framac_wp_timeout_s" in cfg:
         framac_wp_timeout_s = _optional_int(cfg, "framac_wp_timeout_s", 2)

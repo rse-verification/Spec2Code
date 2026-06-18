@@ -101,7 +101,6 @@ DEFAULT_CRITIC_NAMES: List[str] = [
     "framac-wp",
     "vernfr-control-flow",
     "vernfr-data-flow",
-    "valgrind",
 ]
 
 

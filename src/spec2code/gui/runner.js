@@ -15,6 +15,8 @@ const customNaturalSpecPath = document.getElementById("customNaturalSpecPath");
 const customInterfacePath = document.getElementById("customInterfacePath");
 const customVerificationHeaderPath = document.getElementById("customVerificationHeaderPath");
 const rowCustomVerificationHeader = document.getElementById("rowCustomVerificationHeader");
+const customTestHarnessPath = document.getElementById("customTestHarnessPath");
+const customTestHarnessSourceName = document.getElementById("customTestHarnessSourceName");
 const customIncludeDirs = document.getElementById("customIncludeDirs");
 const customHeadersDir = document.getElementById("customHeadersDir");
 const customHeadersManifest = document.getElementById("customHeadersManifest");
@@ -371,6 +373,16 @@ function buildCustomConfigObject() {
     cfg.verification_header_path = verificationHeaderPath;
   }
 
+  const testHarnessPath = (customTestHarnessPath.value || "").trim();
+  if (testHarnessPath) {
+    cfg.test_harness_path = testHarnessPath;
+  }
+
+  const testHarnessSourceName = (customTestHarnessSourceName.value || "").trim();
+  if (testHarnessSourceName) {
+    cfg.test_harness_source_name = testHarnessSourceName;
+  }
+
   return cfg;
 }
 
@@ -440,6 +452,8 @@ pickerSearch.addEventListener("input", () => {
   customNaturalSpecPath,
   customInterfacePath,
   customVerificationHeaderPath,
+  customTestHarnessPath,
+  customTestHarnessSourceName,
   customIncludeDirs,
   customHeadersDir,
   customHeadersManifest,
