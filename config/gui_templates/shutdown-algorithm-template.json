@@ -16,22 +16,13 @@
       "module_state_and_constants.h": "Module-local constants and state used by hysteresis and RS logic.",
       "shutdown_algorithm.h": "Public module entry declaration."
     },
-    "test_harness_path": "/mnt/c/Users/ERUDY8/Work/spec2code_case_studies/shutdown_algorithm/headers/shutdown_algorithm_tests.c",
-    "test_harness_source_name": "shutdown_algorithm.c",
     "temperature": 0.7,
     "framac_wp_timeout_s": 2,
     "framac_wp_no_let": true,
     "critics": [
       "compile",
       "framac-wp",
-      "cppcheck-misra",
-      "valgrind"
-    ],
-    "critic_options": {
-      "valgrind": {
-        "massif": false,
-        "memcheck": true
-      }
-    }
+      "cppcheck-misra"
+    ]
   }
 ]

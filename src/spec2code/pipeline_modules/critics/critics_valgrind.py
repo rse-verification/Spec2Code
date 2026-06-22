@@ -86,7 +86,6 @@ class ValgrindCritic:
 
             raw_output = (stdout_str or "") + "\n" + (stderr_str or "")
             raw_outputs.append(raw_output)
-            exit_codes["massif"] = _exit_code
             for key, value in timing.items():
                 process_timing[f"massif_{key}_s"] = value
 
@@ -115,6 +114,7 @@ class ValgrindCritic:
                     "raw_output": raw_output.strip() or msg,
                 }
             
+            exit_codes["massif"] = _exit_code
             massif_analysis = self._analyze_massif(massif_path)
             success = success and massif_analysis["peak_heap_bytes"] is not None
             summaries.append(massif_analysis["summary"])
@@ -153,7 +153,6 @@ class ValgrindCritic:
 
             raw_output = (stdout_str or "") + "\n" + (stderr_str or "")
             raw_outputs.append(raw_output)
-            exit_codes["memcheck"] = _exit_code
             for key, value in timing.items():
                 process_timing[f"memcheck_{key}_s"] = value
 
@@ -179,7 +178,8 @@ class ValgrindCritic:
                     }],
                     "raw_output": raw_output.strip() or msg,
                 }
-
+            
+            exit_codes["memcheck"] = _exit_code
             memcheck_analysis = self._analyze_memcheck(raw_output, compiled_output_path)
             success = success and memcheck_analysis["success"]
             summaries.append(memcheck_analysis["summary"])
