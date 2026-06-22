@@ -82,6 +82,10 @@ RUN set -eux; \
   z3 --version; \
   cvc5 --version
 
+# --- Valgrind ---
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends valgrind
+
 # --- Python venv (inside image) ---
 RUN python3 -m venv "$VENV_DIR" \
  && "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel

@@ -36,6 +36,22 @@ class ValgrindCritic:
         process_timing: Dict[str, float] = {}
         success = True
 
+        if not os.path.exists(compiled_output_path):
+            msg = "Executable not found"
+            return {
+                "tool": self.name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Valgrind analysis failed, executable not found.",
+                "findings": [{
+                    "tool": self.name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": compiled_output_path},
+                    "rule": None,
+                }]
+            }
+
         # ----- Run massif -----
         massif_analysis = {}
         massif_cmd = ""
