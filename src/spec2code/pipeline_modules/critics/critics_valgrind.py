@@ -116,10 +116,20 @@ class ValgrindCritic:
             
             exit_codes["massif"] = _exit_code
             massif_analysis = self._analyze_massif(massif_path)
-            success = success and massif_analysis["peak_heap_bytes"] is not None
+
+            success = success and massif_analysis["peak_heap_bytes"] is not None and (not _exit_code)
             summaries.append(massif_analysis["summary"])
             metrics.update(massif_analysis["metrics"])
             findings.extend(massif_analysis["findings"])
+
+            if _exit_code:
+                msg = "Massif returned with non-zero exit code"
+                findings.append({
+                        "tool": self.name,
+                        "severity": "error",
+                        "message": msg,
+                        "location": {"file": compiled_output_path},
+                    })
 
             try:
                 if os.path.exists(massif_path):
@@ -181,10 +191,20 @@ class ValgrindCritic:
             
             exit_codes["memcheck"] = _exit_code
             memcheck_analysis = self._analyze_memcheck(raw_output, compiled_output_path)
-            success = success and memcheck_analysis["success"]
+
+            success = success and memcheck_analysis["success"] and (not _exit_code)
             summaries.append(memcheck_analysis["summary"])
             metrics.update(memcheck_analysis["metrics"])
             findings.extend(memcheck_analysis["findings"])
+
+            if _exit_code:
+                msg = "Memcheck returned with non-zero exit code"
+                findings.append({
+                        "tool": self.name,
+                        "severity": "error",
+                        "message": msg,
+                        "location": {"file": compiled_output_path},
+                    })
 
         if not self.massif and not self.memcheck:
             success = False
