@@ -127,26 +127,35 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
         {
             "c_file_path": str(c_file),
             "generated_header_path": str(hdr_file),
-            "test_harness_path": str(harness_file),
-            "critics": ["compile", "framac-wp"],
+            "critics": ["compile", "framac-wp", "valgrind"],
             "timeout": 23,
             "include_dirs": [str(include_dir)],
             "defines": ["DEBUG"],
             "generated_files": [str(c_file)],
             "critic_context": {"debug": True},
-            "critic_options": {"framac-wp": {"wp_timeout": 7, "solvers": "Alt-Ergo", "framac_wp_no_let": True}},
+            "critic_options": {
+                "compile": {
+                    "test_harness_path": str(harness_file),
+                    "test_harness_source_name": "main.c",
+                },
+                "framac-wp": {"wp_timeout": 7, "solvers": "Alt-Ergo", "framac_wp_no_let": True},
+                "valgrind": {"executable_args": '--case smoke --name "phase one"'},
+            },
         }
     )
 
     assert out["ok"] is True
     assert out["inputs"]["timeout"] == 23
-    assert out["inputs"]["critics"] == ["compile", "framac-wp"]
+    assert out["inputs"]["critics"] == ["compile", "framac-wp", "valgrind"]
     assert out["inputs"]["test_harness_path"] == str(harness_file)
+    assert out["inputs"]["test_harness_source_name"] == "main.c"
 
     build_kwargs = captured["build"]
-    assert build_kwargs["names"] == ["compile", "framac-wp"]
+    assert build_kwargs["names"] == ["compile", "framac-wp", "valgrind"]
     assert build_kwargs["timeout"] == 23
     assert build_kwargs["solvers"] == ["Alt-Ergo"]
+    assert build_kwargs["critic_options"]["compile"]["test_harness_path"] == str(harness_file)
+    assert build_kwargs["critic_options"]["compile"]["test_harness_source_name"] == "main.c"
     assert build_kwargs["critic_options"]["framac-wp"]["wp_timeout"] == 7
     assert "solvers" not in build_kwargs["critic_options"]["framac-wp"]
     assert build_kwargs["critic_options"]["framac-wp"]["framac_wp_no_let"] is True
@@ -163,9 +172,12 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert run_kwargs["spec_c_path"] is None
     assert run_kwargs["base_context"]["debug"] is True
     assert run_kwargs["base_context"]["generated_header_path"] == str(hdr_file)
-    assert run_kwargs["base_context"]["test_harness_path"] == str(harness_file)
+    assert "test_harness_path" not in run_kwargs["base_context"]
+    assert "executable_args" not in run_kwargs["base_context"]
     assert run_kwargs["base_context"]["generated_files"] == [str(c_file)]
+    assert run_kwargs["critic_configs"]["compile"]["test_harness_path"] == str(harness_file)
     assert run_kwargs["critic_configs"]["framac-wp"]["framac_wp_no_let"] is True
+    assert run_kwargs["critic_configs"]["valgrind"]["executable_args"] == '--case smoke --name "phase one"'
 
     verify_report = tmp_path / "output" / "reports" / "latest-verify.json"
     assert verify_report.is_file()
@@ -752,9 +764,18 @@ def test_build_critics_catalog_uses_detected_why3_solvers(monkeypatch):
     catalog, detected = run_server._build_critics_catalog()
 
     assert detected == ["Z3", "Alt-Ergo"]
+    compile_critic = next(c for c in catalog if c.get("name") == "compile")
+    compile_option_keys = {o.get("key") for o in compile_critic.get("options", [])}
+    assert "test_harness_path" in compile_option_keys
+    assert "test_harness_source_name" in compile_option_keys
+
     framac = next(c for c in catalog if c.get("name") == "framac-wp")
     solvers_opt = next(o for o in framac.get("options", []) if o.get("key") == "solvers")
     assert solvers_opt.get("default") == "Z3,Alt-Ergo"
+
+    valgrind = next(c for c in catalog if c.get("name") == "valgrind")
+    valgrind_option_keys = {o.get("key") for o in valgrind.get("options", [])}
+    assert "executable_args" in valgrind_option_keys
 
 
 @pytest.mark.unit

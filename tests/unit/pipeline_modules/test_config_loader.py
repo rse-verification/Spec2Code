@@ -152,6 +152,32 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
 
 
 @pytest.mark.unit
+def test_load_and_prepare_configs_maps_compile_test_harness_options(tmp_path, monkeypatch):
+    paths = write_shutdown_case_study(tmp_path)
+    harness = paths["headers_dir"] / "shutdown_algorithm_tests.c"
+    harness.write_text('#include "shutdown_algorithm.c"\n', encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    cfg = build_config_dict(paths)
+    cfg["critic_options"] = {
+        "compile": {
+            "test_harness_path": str(harness),
+            "test_harness_source_name": "shutdown_algorithm.c",
+        }
+    }
+    write_config(config_path, [cfg])
+
+    monkeypatch.setattr(config_loader, "format_prompt", lambda template, inputs: "prompt")
+    monkeypatch.setattr(config_loader, "build_critics_from_names", lambda **kwargs: ["critic:ok"])
+
+    prepared = config_loader.load_and_prepare_configs(str(config_path), solvers=[])
+    item = prepared[0]
+
+    assert item.critic_options["compile"]["test_harness_path"] == str(harness)
+    assert item.critic_options["compile"]["test_harness_source_name"] == "shutdown_algorithm.c"
+    assert "test_harness_path" not in item.critic_context
+
+
+@pytest.mark.unit
 def test_load_and_prepare_configs_legacy_framac_fields_are_mapped(tmp_path, monkeypatch):
     paths = write_shutdown_case_study(tmp_path)
     config_path = tmp_path / "config.json"

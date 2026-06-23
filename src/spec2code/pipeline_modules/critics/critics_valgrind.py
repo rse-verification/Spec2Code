@@ -8,6 +8,20 @@ from typing import Any, Dict, List
 from spec2code.pipeline_modules.subprocess_creator import run_command
 from spec2code.pipeline_modules.critics.critics_interface import CriticInput, CriticResult, Finding
 
+
+def _normalize_executable_args(ctx: Dict[str, Any]) -> List[str]:
+    raw = ctx.get("executable_args", [])
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        if not raw.strip():
+            return []
+        return shlex.split(raw)
+    if isinstance(raw, (list, tuple)):
+        return [str(arg) for arg in raw]
+    return [str(raw)]
+
+
 class ValgrindCritic:
     name = "valgrind"
 
@@ -27,6 +41,8 @@ class ValgrindCritic:
         compiled_output_path = ctx["compiled_output_path"]
         workdir = os.path.dirname(c_file_path) or None
         quoted_exe = shlex.quote(compiled_output_path)
+        executable_args = _normalize_executable_args(ctx)
+        quoted_executable_args = [shlex.quote(arg) for arg in executable_args]
         findings: List[Finding] = []
         metrics: Dict[str, Any] = {}
         summaries: List[str] = []
@@ -68,6 +84,7 @@ class ValgrindCritic:
                 f"--massif-out-file={shlex.quote(massif_path)}",
                 "--stacks=yes",
                 quoted_exe,
+                *quoted_executable_args,
             ]
 
             massif_cmd = " ".join(cmd_parts).strip()
@@ -147,6 +164,7 @@ class ValgrindCritic:
                 "--errors-for-leak-kinds=definite,indirect,possible",
                 "--error-exitcode=99",
                 quoted_exe,
+                *quoted_executable_args,
             ])
             commands["memcheck"] = memcheck_cmd
 
@@ -225,6 +243,7 @@ class ValgrindCritic:
             "metrics": {
                 "commands": commands,
                 "exit_codes": exit_codes,
+                "executable_args": executable_args,
                 "massif_report": massif_path or None,
                 **metrics,
                 **process_timing,

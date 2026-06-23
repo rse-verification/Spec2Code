@@ -868,6 +868,7 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
                 "control_script_path",
                 "data_script_path",
                 "script_path",
+                "test_harness_path",
             }
             for _critic_name, opts in crit_opts.items():
                 if not isinstance(opts, dict):
@@ -1105,6 +1106,14 @@ def _run_pipeline_from_custom(payload: dict[str, Any], *, defer_execute: bool = 
                 cfg[key] = abs_if_rel(cfg[key])
         if isinstance(cfg.get("include_dirs"), list):
             cfg["include_dirs"] = [abs_if_rel(x) if isinstance(x, str) else x for x in cfg["include_dirs"]]
+        crit_opts = cfg.get("critic_options")
+        if isinstance(crit_opts, dict):
+            for _critic_name, opts in crit_opts.items():
+                if not isinstance(opts, dict):
+                    continue
+                v = opts.get("test_harness_path")
+                if isinstance(v, str):
+                    opts["test_harness_path"] = abs_if_rel(v)
 
     GUI_TMP_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1247,15 +1256,40 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
     if generated_header_path is not None and not generated_header_path.is_file():
         return {"ok": False, "error": f"generated_header_path not found: {generated_header_path}"}
 
+    critic_options = payload.get("critic_options", {})
+    if not isinstance(critic_options, dict):
+        return {"ok": False, "error": "critic_options must be an object/dict."}
+
+    normalized_critic_options: dict[str, dict[str, Any]] = {
+        str(k): dict(v) for k, v in critic_options.items() if isinstance(v, dict)
+    }
+
+    compile_opts = dict(normalized_critic_options.get("compile", {}))
+    raw_test_harness_path = payload.get("test_harness_path")
+    if raw_test_harness_path is None or not str(raw_test_harness_path).strip():
+        raw_test_harness_path = compile_opts.get("test_harness_path")
     test_harness_path, err = _resolve_repo_path(
-        payload.get("test_harness_path"), required=False, label="test_harness_path"
+        raw_test_harness_path,
+        required=False,
+        label="critic_options[compile][test_harness_path]",
     )
     if err:
         return {"ok": False, "error": err}
     if test_harness_path is not None and not test_harness_path.is_file():
         return {"ok": False, "error": f"test_harness_path not found: {test_harness_path}"}
 
-    test_harness_source_name = str(payload.get("test_harness_source_name", "") or "").strip()
+    raw_test_harness_source_name = payload.get("test_harness_source_name")
+    if raw_test_harness_source_name is None or not str(raw_test_harness_source_name).strip():
+        raw_test_harness_source_name = compile_opts.get("test_harness_source_name", "")
+    test_harness_source_name = str(
+        raw_test_harness_source_name or ""
+    ).strip()
+    if test_harness_path is not None:
+        compile_opts["test_harness_path"] = str(test_harness_path)
+    if test_harness_source_name:
+        compile_opts["test_harness_source_name"] = test_harness_source_name
+    if compile_opts:
+        normalized_critic_options["compile"] = compile_opts
 
     include_dirs_raw = payload.get("include_dirs", [])
     include_dirs: list[str] = []
@@ -1307,14 +1341,6 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
     compiled_output = str(payload.get("compiled_output_path", "")).strip() or f"{c_file_path}.out"
     if not os.path.isabs(compiled_output):
         compiled_output = os.path.normpath(str(REPO_ROOT / compiled_output))
-
-    critic_options = payload.get("critic_options", {})
-    if not isinstance(critic_options, dict):
-        return {"ok": False, "error": "critic_options must be an object/dict."}
-
-    normalized_critic_options: dict[str, dict[str, Any]] = {
-        str(k): dict(v) for k, v in critic_options.items() if isinstance(v, dict)
-    }
 
     temp_dirs: list[Path] = []
     cleanup_files: list[Path] = []
@@ -1554,12 +1580,6 @@ def _run_verify_files(payload: dict[str, Any]) -> dict[str, Any]:
     if generated_files:
         critic_context = dict(critic_context)
         critic_context["generated_files"] = generated_files
-    if test_harness_path is not None:
-        critic_context = dict(critic_context)
-        critic_context["test_harness_path"] = str(test_harness_path)
-        if test_harness_source_name:
-            critic_context["test_harness_source_name"] = test_harness_source_name
-
     try:
         critic_instances = build_critics_from_names(
             names=critics,

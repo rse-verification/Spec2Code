@@ -113,6 +113,19 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
         "default_enabled": True,
         "options": [
             {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {
+                "key": "test_harness_path",
+                "type": "path",
+                "label": "Test Harness C Path (optional)",
+                "default": "",
+                "ext": ".c",
+            },
+            {
+                "key": "test_harness_source_name",
+                "type": "string",
+                "label": "Expected Source Name (from test harness)",
+                "default": "",
+            },
         ],
     },
     {
@@ -184,11 +197,17 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
     {
         "name": "valgrind",
         "label": "Valgrind",
-        "default_enabled": True,
+        "default_enabled": False,
         "options": [
             {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
             {"key": "memcheck", "type": "bool", "label": "Memcheck", "default": True},
             {"key": "massif", "type": "bool", "label": "Massif", "default": False},
+            {
+                "key": "executable_args",
+                "type": "string",
+                "label": "Executable Args",
+                "default": "",
+            },
         ],
     },
 ]

@@ -277,6 +277,41 @@ def test_valgrind_memcheck_success(tmp_path, monkeypatch):
     assert result["score"] == 1.0
     assert "Memcheck completed with no memory errors or actionable leaks." in result["summary"]
 
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_valgrind_passes_executable_args_to_executable(tmp_path, monkeypatch):
+    
+    exe = _write_executable(tmp_path)
+    c_file = _write_c_file(tmp_path)
+
+    def _fake_run_command(cmd, timeout, cwd):
+        assert "--tool=memcheck" in cmd
+        assert f"{exe} --case smoke --name 'phase one'" in cmd
+        return memcheck_output_success, "", True, 0
+
+    monkeypatch.setattr(
+        critics_valgrind,
+        "run_command",
+        _fake_run_command,
+    )
+
+    critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
+
+    input = {"c_file_path": str(c_file), 
+             "timeout": 5,
+             "context": {
+                 "compiled_output_path": str(exe),
+                 "executable_args": ["--case", "smoke", "--name", "phase one"],
+                }
+             }
+
+    result = critic.run(input)
+
+    assert result["success"] is True
+    assert result["metrics"]["executable_args"] == ["--case", "smoke", "--name", "phase one"]
+
+
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_massif_success(tmp_path, monkeypatch):

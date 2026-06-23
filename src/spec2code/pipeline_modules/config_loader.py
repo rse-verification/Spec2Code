@@ -267,16 +267,33 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
             )
         critic_options[critic_name] = dict(options)
 
+    compile_opts = dict(critic_options.get("compile", {}))
+
     test_harness_path = _optional_path(cfg, "test_harness_path", base_dir)
+    if not test_harness_path:
+        raw_compile_harness = compile_opts.get("test_harness_path")
+        if raw_compile_harness is not None:
+            if not isinstance(raw_compile_harness, str) or not raw_compile_harness.strip():
+                raise ValueError(
+                    "Config error: 'critic_options[compile][test_harness_path]' "
+                    "must be a non-empty string if present."
+                )
+            test_harness_path = _abspath(base_dir, raw_compile_harness.strip())
     if test_harness_path:
         _require_file(test_harness_path, "test_harness_path")
-        critic_context.setdefault("test_harness_path", test_harness_path)
+        compile_opts["test_harness_path"] = test_harness_path
 
-    test_harness_source_name = cfg.get("test_harness_source_name")
+    test_harness_source_name = cfg.get(
+        "test_harness_source_name",
+        compile_opts.get("test_harness_source_name"),
+    )
     if test_harness_source_name is not None:
         if not isinstance(test_harness_source_name, str) or not test_harness_source_name.strip():
             raise ValueError("Config error: 'test_harness_source_name' must be a non-empty string if present.")
-        critic_context.setdefault("test_harness_source_name", test_harness_source_name.strip())
+        compile_opts["test_harness_source_name"] = test_harness_source_name.strip()
+
+    if compile_opts:
+        critic_options["compile"] = compile_opts
 
     # Backward compatibility for legacy Frama-C specific keys.
     if "framac_wp_timeout_s" in cfg:
