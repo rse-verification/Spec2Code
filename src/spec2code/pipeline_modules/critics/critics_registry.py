@@ -9,6 +9,7 @@ from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMi
 from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
 from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
+from spec2code.pipeline_modules.critics.critics_binary_size import BinarySizeCritic
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -86,6 +87,9 @@ def _build_valgrind(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Crit
     use_memcheck = bool(opts.get("memcheck", True))
     return ValgrindCritic(massif=use_massif, memcheck=use_memcheck)
 
+def _build_binary_size(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
+    limit = int(opts.get("binary_size_limit_bytes", 1024))
+    return BinarySizeCritic(binary_size_limit_bytes=limit)
 
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "compile": _build_compile,
@@ -94,6 +98,7 @@ CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "vernfr-control-flow": _build_vernfr_control,
     "vernfr-data-flow": _build_vernfr_data,
     "valgrind": _build_valgrind,
+    "binary_size": _build_binary_size,
 }
 
 
@@ -208,6 +213,15 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "label": "Executable Args",
                 "default": "",
             },
+        ],
+    },
+    {
+        "name": "binary_size",
+        "label": "Binary Size",
+        "default_enabled": True,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {"key": "binary_size_limit_bytes", "type": "int", "label": "Binary Size Limit (bytes)", "default": 1024},
         ],
     },
 ]
