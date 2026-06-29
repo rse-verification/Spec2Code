@@ -115,14 +115,16 @@ def test_execute_pipeline_prepared_happy_path_writes_outputs_and_copies_files(tm
 
     llm_dir = Path(cfg.output_folder) / "test-llm-shutdown"
     sample_dir = llm_dir / "sample_000"
+    attempt_dir = sample_dir / "attempt_000"
     assert (llm_dir / "prompt.txt").is_file()
     assert (sample_dir / "output.json").is_file()
+    assert (attempt_dir / "output.json").is_file()
     assert (llm_dir / "output.json").is_file()
     assert (Path(cfg.output_folder) / "output_pipeline.json").is_file()
 
-    # copied headers + interface into sample folder
-    assert (sample_dir / "types.h").is_file()
-    assert (sample_dir / "shutdown_algorithm.is").is_file()
+    # copied headers + interface into attempt folder
+    assert (attempt_dir / "types.h").is_file()
+    assert (attempt_dir / "shutdown_algorithm.is").is_file()
 
     settings = seen["kwargs"]["settings"]
     assert settings.timeout_s == 77
@@ -276,3 +278,73 @@ def test_execute_pipeline_prepared_writes_output_txt_with_timing_metrics(tmp_pat
     assert "process_real_s" in content
     assert "process_user_s" in content
     assert "process_sys_s" in content
+
+
+@pytest.mark.unit
+def test_execute_pipeline_prepared_retries_until_critics_pass(tmp_path, monkeypatch):
+    cfg = _make_cfg(tmp_path)
+    cfg.max_generation_iterations = 3
+    runtime = _FakeRuntime(cfg.llms_used)
+
+    monkeypatch.setattr(
+        pipeline_executor,
+        "extract_llm_response_info",
+        lambda output_llm: {"code": "int main(void){return 0;}\n", "generated_header": "#pragma once\n"},
+    )
+
+    critic_results = [
+        {"verify_success": False, "critics_success": False, "critics_score": 0.0, "critics_results": []},
+        {"verify_success": True, "critics_success": True, "critics_score": 1.0, "critics_results": []},
+    ]
+    process_calls = {"n": 0}
+
+    def _fake_process_llm_generated_code(**kwargs):
+        process_calls["n"] += 1
+        return critic_results.pop(0)
+
+    repair_prompts = []
+
+    def _fake_build_repair_prompt(**kwargs):
+        repair_prompts.append(kwargs)
+        return kwargs["original_prompt"] + "\nREPAIR"
+
+    monkeypatch.setattr(pipeline_executor, "process_llm_generated_code", _fake_process_llm_generated_code)
+    monkeypatch.setattr(pipeline_executor, "_build_repair_prompt", _fake_build_repair_prompt)
+
+    pipeline_executor.execute_pipeline_prepared(cfg, runtime=runtime)
+
+    output_json = Path(cfg.output_folder) / "test-llm-shutdown" / "sample_000" / "output.json"
+    data = json.loads(output_json.read_text(encoding="utf-8"))
+
+    assert process_calls["n"] == 2
+    assert len(repair_prompts) == 1
+    assert data["critics_success"] is True
+    assert data["generation_stop_reason"] == "all_critics_passed"
+    assert data["generation_attempt_count"] == 2
+
+
+@pytest.mark.unit
+def test_build_repair_prompt_includes_failed_attempt_and_failed_critics():
+    prompt = pipeline_executor._build_repair_prompt(
+        original_prompt="ORIGINAL TASK\n",
+        attempt_entry={
+            "code": "int bad(void) { return missing; }\n",
+            "generated_header": "int bad(void);\n",
+            "critics_success": False,
+            "critics_score": 0.0,
+            "verify_success": False,
+            "verify_message": "At least one critic failed.",
+            "critics_results": [
+                {"tool": "compile", "success": False, "score": 0.0, "summary": "missing undeclared"},
+                {"tool": "cppcheck-misra", "success": True, "score": 1.0, "summary": "ok"},
+            ],
+        },
+    )
+
+    assert prompt.startswith("ORIGINAL TASK")
+    assert "The following previously generated C implementation failed verification." in prompt
+    assert "int bad(void) { return missing; }" in prompt
+    assert "int bad(void);" in prompt
+    assert '"critics_results"' in prompt
+    assert '"tool": "compile"' in prompt
+    assert '"tool": "cppcheck-misra"' not in prompt

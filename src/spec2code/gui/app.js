@@ -87,6 +87,7 @@ function renderOverview(data) {
     ["Critics", data.critics_results ? data.critics_results.length : 0],
     ["Critics Score", formatScore(data.critics_score)],
     ["Elapsed", formatSeconds(data.total_elapsed_time_program)],
+    ["Attempts", data.generation_attempt_count || 1],
     ["C File", data.generated_file_path || "n/a"],
     ["Header", data.generated_header_path || "n/a"],
     ["ACSL", data.generated_acsl_path || "n/a"],

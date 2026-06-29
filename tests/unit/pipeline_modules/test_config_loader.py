@@ -32,6 +32,7 @@ def test_load_and_prepare_configs_success(tmp_path, monkeypatch):
     assert item.case_study_inputs.input_interface.strip().startswith("Module shutdown_algorithm")
     assert item.filled_prompt.startswith("PROMPT::zero-shot")
     assert item.critics_instances == ["critic:compile"]
+    assert item.max_generation_iterations == 1
 
 
 @pytest.mark.unit

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -13,6 +14,7 @@ from spec2code.core.llm_output_parser import extract_llm_response_info
 from spec2code.core.spec_injection import _inject_module_state_constants
 from spec2code.pipeline_modules.filesystem_io import copy_files, export_json, write_file
 from spec2code.pipeline_modules.runtime import Runtime
+from src.spec2code.pipeline_modules.config_loader import PreparedConfig
 
 
 def _now_stamp() -> str:
@@ -82,6 +84,109 @@ def _render_critic_timing_report(entry: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _build_repair_prompt(
+    *,
+    original_prompt: str,
+    attempt_entry: Dict[str, Any],
+) -> str:
+    """
+    Builds an repair prompt based on the original prompt and critic feedback.
+
+    Parameters
+    ----------
+    original_prompt:
+        Original prompt created by the config loader.
+
+    attempt_entry:
+        Information about current generation attempt such as generated code and critic feedback.
+
+    Returns
+    -------
+    str
+        Modified repair prompt.
+    """
+
+    code = str(attempt_entry.get("code") or attempt_entry.get("code_raw_llm") or "")
+    header = str(attempt_entry.get("generated_header") or "")
+    critics_results = list(attempt_entry.get("critics_results") or [])
+    failed_critics = [
+        r for r in critics_results
+        if isinstance(r, dict) and not bool(r.get("success", False))
+    ]
+
+    diagnostic_payload: Dict[str, Any] = {
+        "critics_success": bool(attempt_entry.get("critics_success", False)),
+        "critics_score": attempt_entry.get("critics_score"),
+        "verify_success": bool(attempt_entry.get("verify_success", False)),
+        "verify_message": attempt_entry.get("verify_message"),
+    }
+
+    """
+    if failed_critics:
+        diagnostic_payload["critics_results"] = [
+            {k: critic[k] for k in keep if k in critic}
+            for critic in failed_critics
+        ]"""
+
+    # Extract diagnostics from critic results
+    keep = ("tool", "summary", "findings", "metrics", "raw_output")
+
+    critic_diagnostics: List[Dict] = []
+    for critic in failed_critics:
+
+        c_entry: Dict[str, Any] = {}
+        for k in keep:
+
+            value = critic.get(k, "")
+            if not value:
+                break
+            
+            # Truncate output if too long
+            if k == "raw_output" and isinstance(value, str):
+                value = value[:500]
+
+            c_entry.update({k: value})
+        
+        critic_diagnostics.append(c_entry)
+
+    diagnostic_payload["critics_results"] = critic_diagnostics
+
+    if attempt_entry.get("error"):
+        diagnostic_payload["error"] = attempt_entry.get("error")
+
+    repair_section: List[str] = [
+        "The following previously generated C implementation failed verification.",
+        "Repair the previous answer. Keep the same required output format as the original prompt.",
+        "Do not explain the changes. Return only the corrected implementation in the requested format.",
+        "Prioritize fixing the failed critic diagnostics below. Do not introduce unrelated rewrites.",
+        "",
+        "Previous C code:",
+        "```c",
+        code,
+        "```",
+    ]
+
+    if header:
+        repair_section.extend([
+            "",
+            "Previous generated header:",
+            "```c",
+            header,
+            "```",
+        ])
+
+    if critic_diagnostics:
+        repair_section.extend([
+            "",
+            "Verification diagnostics:",
+            "```json",
+            json.dumps(diagnostic_payload, indent=2, default=str),
+            "```",
+        ])
+
+    return f"{original_prompt.rstrip()}\n\n" + "\n".join(repair_section)
+
+
 @dataclass(frozen=True)
 class PreparedPipelineConfig:
     cfg: Any
@@ -92,7 +197,23 @@ class PreparedPipelineConfig:
     settings: PipelineSettings
 
 
-def execute_pipeline_prepared(prep, *, runtime: Runtime) -> None:
+def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None:
+    """
+    Runs a pipeline from a PreparedConfig produced by config_loader.load_and_prepare_configs().
+
+    Writes final results to llm_name/sample_xxx/ and intermediate attempts to llm_name/sample_xxx/attempt_xxx/
+
+    Expected fields on `prep` (PreparedConfig):
+      - name, case_study, selected_prompt_template, llms_used, n_programs_generated
+      - output_folder, headers_dir, copy_headers_to_output, temperature
+      - include_dirs (already absolute), critics (already validated)
+      - timeout_s, debug
+      - case_study_inputs: PreparedCaseStudyInputs with:
+          input_natural_language_specification, input_interface,
+          input_headers_json, input_type_definitions, input_types_header_filename, headers_dir
+      - filled_prompt
+    """
+
     cfg = prep
 
     _log("=" * 70)
@@ -160,6 +281,7 @@ def execute_pipeline_prepared(prep, *, runtime: Runtime) -> None:
         }
     )
 
+    # Generate programs using specified LLMs
     for llm_name in cfg.llms_used:
         _log(f"LLM: {llm_name} (programs: {cfg.n_programs_generated})")
 
@@ -174,80 +296,140 @@ def execute_pipeline_prepared(prep, *, runtime: Runtime) -> None:
         write_file(prompt_path, filled_prompt)
 
         for i in range(cfg.n_programs_generated):
+
             start_time_program = time.perf_counter()
-            _log(f"  [program {i+1}/{cfg.n_programs_generated}] prompt -> {llm_name}")
-
-            output_llm = runtime.llms_available[llm_name].prompt(
-                filled_prompt,
-                stream=False,
-                temperature=cfg.temperature,
-            )
-
-            entry: Dict[str, Any] = {}
-            entry.update(extract_llm_response_info(output_llm))
-            entry["filled_prompt"] = filled_prompt
 
             sample_dir = os.path.join(llm_dir, f"sample_{i:03d}")
             _ensure_dir(sample_dir)
 
-            if cfg.headers_dir and cfg.copy_headers_to_output:
-                try:
-                    if callable(copy_files):
-                        copy_files(cfg.headers_dir, sample_dir)
-                    else:
-                        _copy_tree_flat(cfg.headers_dir, sample_dir)
-                except Exception as e:
-                    print(f"Warning: failed to copy headers from {cfg.headers_dir} to {sample_dir}: {e}")
+            repair_prompt = filled_prompt
+            max_generation_iterations = int(getattr(cfg, "max_generation_iterations", 1) or 1)
+            max_generation_iterations = max(1, max_generation_iterations)
 
-            interface_path = getattr(cfg, "interface_path", None)
-            if interface_path:
-                try:
-                    shutil.copy2(interface_path, os.path.join(sample_dir, os.path.basename(interface_path)))
-                except Exception as e:
-                    print(f"Warning: failed to copy interface spec from {interface_path} to {sample_dir}: {e}")
+            attempts_made = 0
 
-            if "error" not in entry:
-                base = cfg.case_study
-                interface_path = str(getattr(cfg, "interface_path", "") or "").strip()
-                if interface_path:
-                    stem = os.path.splitext(os.path.basename(interface_path))[0]
-                    if stem:
-                        base = stem
-                c_path = os.path.join(sample_dir, f"{base}.c")
+            entry: Dict[str, Any] = {}
 
-                module_header_name = csi.module_state_header_filename
-                module_header_content = csi.module_state_header_content
-                if module_header_name and module_header_content:
-                    entry["code"] = _inject_module_state_constants(
-                        entry["code"],
-                        module_header_name,
-                        module_header_content,
-                    )
-
-                entry.update(
-                    process_llm_generated_code(
-                        generated_code=entry["code"],
-                        generated_header=entry.get("generated_header", ""),
-                        file_path=c_path,
-                        interface_text=interface_text,
-                        verification_header_template_path=(
-                            dict(getattr(cfg, "critic_options", {}) or {})
-                            .get("framac-wp", {})
-                            .get("verification_header_template_path")
-                        ),
-                        debug=bool(getattr(cfg, "debug", False)),
-                        include_dirs=include_dirs_final,
-                        critics=critics,
-                        settings=settings,
-                    )
+            # Iterate code generation until all critics pass or reach limit
+            for gen_iter in range(max_generation_iterations):
+                _log(
+                    f"  [program {i+1}/{cfg.n_programs_generated}] "
+                    f"attempt {gen_iter+1}/{max_generation_iterations} | prompt -> {llm_name}"
                 )
 
+                attempts_made += 1
+
+                start_time_attempt = time.perf_counter()
+
+                attempt_dir = os.path.join(sample_dir, f"attempt_{gen_iter:03d}")
+                _ensure_dir(attempt_dir)
+
+                attempt_prompt_path = os.path.join(attempt_dir, "attempt_prompt.txt")
+                write_file(attempt_prompt_path, repair_prompt)
+
+                if cfg.headers_dir and cfg.copy_headers_to_output:
+                    try:
+                        if callable(copy_files):
+                            copy_files(cfg.headers_dir, attempt_dir)
+                        else:
+                            _copy_tree_flat(cfg.headers_dir, attempt_dir)
+                    except Exception as e:
+                        print(f"Warning: failed to copy headers from {cfg.headers_dir} to {attempt_dir}: {e}")
+
+                interface_path = getattr(cfg, "interface_path", None)
+                if interface_path:
+                    try:
+                        shutil.copy2(interface_path, os.path.join(attempt_dir, os.path.basename(interface_path)))
+                    except Exception as e:
+                        print(f"Warning: failed to copy interface spec from {interface_path} to {attempt_dir}: {e}")
+
+                output_llm = runtime.llms_available[llm_name].prompt(
+                    repair_prompt,
+                    stream=False,
+                    temperature=cfg.temperature,
+                )
+
+                
+
+                entry = {}
+                entry.update(extract_llm_response_info(output_llm))
+                entry["filled_prompt"] = repair_prompt
+                entry["generation_iteration"] = gen_iter
+
+                if "error" not in entry:
+                    base = cfg.case_study
+                    interface_path = str(getattr(cfg, "interface_path", "") or "").strip()
+                    if interface_path:
+                        stem = os.path.splitext(os.path.basename(interface_path))[0]
+                        if stem:
+                            base = stem
+                    c_path = os.path.join(attempt_dir, f"{base}.c")
+
+                    module_header_name = csi.module_state_header_filename
+                    module_header_content = csi.module_state_header_content
+                    if module_header_name and module_header_content:
+                        entry["code"] = _inject_module_state_constants(
+                            entry["code"],
+                            module_header_name,
+                            module_header_content,
+                        )
+
+                    entry.update(
+                        process_llm_generated_code(
+                            generated_code=entry["code"],
+                            generated_header=entry.get("generated_header", ""),
+                            file_path=c_path,
+                            interface_text=interface_text,
+                            verification_header_template_path=(
+                                dict(getattr(cfg, "critic_options", {}) or {})
+                                .get("framac-wp", {})
+                                .get("verification_header_template_path")
+                            ),
+                            debug=bool(getattr(cfg, "debug", False)),
+                            include_dirs=include_dirs_final,
+                            critics=critics,
+                            settings=settings,
+                        )
+                    )
+
+                elapsed_attempt = time.perf_counter() - start_time_attempt
+                entry["total_elapsed_time_attempt"] = elapsed_attempt
+                entry["max_generation_iterations"] = max_generation_iterations
+
+                stop: bool = False
+                if bool(entry.get("critics_success", False)):
+                    entry["generation_stop_reason"] = "all_critics_passed"
+                    stop = True
+                elif gen_iter >= max_generation_iterations - 1:
+                    entry["generation_stop_reason"] = "max_generation_iterations_reached"
+                    stop = True
+
+                _log(
+                    f"  [program {i+1}/{cfg.n_programs_generated}] "
+                    f"  attempt {gen_iter+1}/{max_generation_iterations} done in {_fmt_duration(elapsed_attempt)} "
+                )
+
+                export_json(os.path.join(attempt_dir, "output.json"), entry)
+                write_file(os.path.join(attempt_dir, "output.txt"), _render_critic_timing_report(entry))
+                
+                if stop:
+                    break
+
+                repair_prompt = _build_repair_prompt(
+                    original_prompt=filled_prompt,
+                    attempt_entry=entry,
+                )
+
+            
+            # Write final output statistics
             elapsed_program = time.perf_counter() - start_time_program
             program_times.append(elapsed_program)
             avg_program = sum(program_times) / len(program_times)
             remaining_programs = cfg.n_programs_generated - (i + 1)
             eta_programs = avg_program * remaining_programs
             entry["total_elapsed_time_program"] = elapsed_program
+            entry["max_generation_iterations"] = max_generation_iterations
+            entry["generation_attempt_count"] = attempts_made
             _log(
                 f"  [program {i+1}/{cfg.n_programs_generated}] done in {_fmt_duration(elapsed_program)} "
                 f"| avg {_fmt_duration(avg_program)} | eta {_fmt_duration(eta_programs)}"

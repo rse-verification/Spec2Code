@@ -209,6 +209,7 @@ class PreparedConfig:
     selected_prompt_template: str
     llms_used: List[str]
     n_programs_generated: int
+    max_generation_iterations: int
     output_folder: str
     natural_spec_path: str
     interface_path: str
@@ -235,6 +236,8 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
     selected_prompt_template = _require_str(cfg, "selected_prompt_template")
     llms_used = _require_list_str(cfg, "llms_used")
     n_programs_generated = _require_int(cfg, "n_programs_generated")
+
+    max_generation_iterations = int(cfg.get("max_generation_iterations", 0))
 
     output_folder = _abspath(base_dir, _require_str(cfg, "output_folder"))
 
@@ -388,6 +391,7 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         selected_prompt_template=selected_prompt_template,
         llms_used=llms_used,
         n_programs_generated=n_programs_generated,
+        max_generation_iterations=max_generation_iterations,
         output_folder=output_folder,
         natural_spec_path=natural_spec_path,
         interface_path=interface_path,
