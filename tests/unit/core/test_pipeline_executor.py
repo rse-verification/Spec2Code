@@ -341,10 +341,45 @@ def test_build_repair_prompt_includes_failed_attempt_and_failed_critics():
         },
     )
 
-    assert prompt.startswith("ORIGINAL TASK")
-    assert "The following previously generated C implementation failed verification." in prompt
+    assert prompt.startswith("===== Original Task =====")
+    assert "ORIGINAL TASK" in prompt
     assert "int bad(void) { return missing; }" in prompt
     assert "int bad(void);" in prompt
-    assert '"critics_results"' in prompt
-    assert '"tool": "compile"' in prompt
-    assert '"tool": "cppcheck-misra"' not in prompt
+    assert "Verification summary:" in prompt
+    assert "- Critics passed: False" in prompt
+    assert "- Verification message: At least one critic failed." in prompt
+    assert "Failed critic diagnostics:" in prompt
+    assert "1. compile" in prompt
+    assert "Summary: missing undeclared" in prompt
+    assert "cppcheck-misra" not in prompt
+
+
+@pytest.mark.unit
+def test_format_diagnostic_payload_for_llm_handles_nested_details():
+    formatted = pipeline_executor._format_diagnostic_payload_for_llm(
+        {
+            "critics_success": False,
+            "critics_score": 0.25,
+            "verify_success": False,
+            "verify_message": "Verification failed.",
+            "critics_results": [
+                {
+                    "tool": "framac-wp",
+                    "summary": "proof obligations failed",
+                    "findings": [
+                        {"location": "foo.c:12", "message": "postcondition may fail"},
+                    ],
+                    "metrics": {"elapsed_time_s": 1.5},
+                    "raw_output": "goal typed_postcond is unknown",
+                }
+            ],
+        }
+    )
+
+    assert "```json" not in formatted
+    assert "Verification summary:" in formatted
+    assert "1. framac-wp" in formatted
+    assert "Findings:" in formatted
+    assert "- location: foo.c:12" in formatted
+    assert "- elapsed_time_s: 1.5" in formatted
+    assert "Raw Output: goal typed_postcond is unknown" in formatted

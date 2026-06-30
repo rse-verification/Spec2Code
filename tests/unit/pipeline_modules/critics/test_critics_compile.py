@@ -107,6 +107,47 @@ def test_compile_run_error_returns_failure_with_location(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_compile_run_error_returns_one_finding_per_error(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    err = (
+        f"{c_file}:12:3: error: expected ';'\n"
+        f"{c_file}:14:9: error: undeclared identifier 'x'"
+    )
+    monkeypatch.setattr(critics_compile, "run_command", lambda cmd, timeout: ("", err, True))
+
+    critic = critics_compile.CompileCritic()
+    result = critic.run({"c_file_path": str(c_file)})
+
+    assert result["success"] is False
+    assert len(result["findings"]) == 2
+    assert result["findings"][0]["message"] == f"{c_file}:12:3: error: expected ';'"
+    assert result["findings"][0]["location"]["line"] == 12
+    assert result["findings"][1]["message"] == f"{c_file}:14:9: error: undeclared identifier 'x'"
+    assert result["findings"][1]["location"]["line"] == 14
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_extract_diagnostics_keeps_gcc_code_frames_but_not_arbitrary_pipe_lines(tmp_path):
+    c_file = _write_c_file(tmp_path)
+    raw = (
+        f"{c_file}:12:3: error: expected ';'\n"
+        "  12 |     return 0;\n"
+        "      |          ^~~\n"
+        "note: unrelated output | with pipe\n"
+        f"{c_file}:14:9: error: undeclared identifier 'x'\n"
+    )
+
+    diagnostics = critics_compile._extract_diagnostics(raw)
+
+    assert diagnostics["errors"] == [
+        f"{c_file}:12:3: error: expected ';'\n  12 |     return 0;\n      |          ^~~",
+        f"{c_file}:14:9: error: undeclared identifier 'x'",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_compile_run_respects_remove_compiled_false(tmp_path, monkeypatch):
     c_file = _write_c_file(tmp_path)
     compiled = tmp_path / "main.o"
@@ -217,4 +258,14 @@ def test_warning_finding_falls_back_to_default_file_when_no_location():
     finding = critic._warning_finding("just a warning", "default.c")
 
     assert finding["severity"] == "warning"
+    assert finding["location"] == {"file": "default.c"}
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_error_finding_falls_back_to_default_file_when_no_location():
+    critic = critics_compile.CompileCritic()
+    finding = critic._error_finding("just an error", "default.c")
+
+    assert finding["severity"] == "error"
     assert finding["location"] == {"file": "default.c"}

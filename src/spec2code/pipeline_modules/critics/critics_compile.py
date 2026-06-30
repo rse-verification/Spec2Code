@@ -244,14 +244,23 @@ class CompileCritic:
             }
 
         msg = ("\n".join(diagnostics["errors"]) or raw or "Compilation failed.").strip()
-        err_loc = self._parse_gcc_location(diagnostics["errors"][0]) if diagnostics["errors"] else None
+        error_findings: List[Finding] = [
+            self._error_finding(line, c_file_path) for line in diagnostics["errors"]
+        ]
+        if not error_findings:
+            error_findings = [{
+                "tool": self.name,
+                "severity": "error",
+                "message": msg,
+                "location": {"file": c_file_path},
+                "rule": None,
+            }]
         return {
             "tool": self.name,
             "success": False,
             "score": 0.0,
             "summary": "Compilation failed.",
             "metrics": {
-                "message": msg,
                 "command": cmd,
                 "compiled_output_path": compiled_output_path,
                 "timeout": timeout,
@@ -259,13 +268,7 @@ class CompileCritic:
                 "process_user_s": timing.get("user"),
                 "process_sys_s": timing.get("sys"),
             },
-            "findings": [{
-                "tool": self.name,
-                "severity": "error",
-                "message": msg,
-                "location": err_loc or {"file": c_file_path},
-                "rule": None,
-            }],
+            "findings": error_findings,
             "raw_output": raw.strip() or msg,
         }
 
@@ -290,21 +293,66 @@ class CompileCritic:
             "rule": None,
         }
 
+    def _error_finding(self, line: str, default_file: str) -> Finding:
+        loc = self._parse_gcc_location(line) or {"file": default_file}
+        return {
+            "tool": self.name,
+            "severity": "error",
+            "message": line,
+            "location": loc,
+            "rule": None,
+        }
+
 
 def _extract_diagnostics(raw: str) -> Dict[str, List[str]]:
     warnings: List[str] = []
     errors: List[str] = []
+
+    current_warning: str = ""
+    current_error: str = ""
     for line in (raw or "").splitlines():
-        s = line.strip()
+        raw_line = line.rstrip()
+        s = raw_line.strip()
         if not s:
             continue
+
+        if current_warning:
+            if _is_gcc_diagnostic_continuation(s):
+                current_warning = current_warning + "\n" + raw_line
+                continue
+            else:
+                warnings.append(current_warning)
+                current_warning = ""
+        elif current_error:
+            if _is_gcc_diagnostic_continuation(s):
+                current_error = current_error + "\n" + raw_line
+                continue
+            else:
+                errors.append(current_error)
+                current_error = ""
+
         lower = s.lower()
         if "warning:" in lower:
-            warnings.append(s)
-            continue
-        if "error:" in lower or "fatal error" in lower or "undefined reference" in lower:
-            errors.append(s)
+            #warnings.append(s)
+            current_warning = raw_line
+        elif "error:" in lower or "fatal error" in lower or "undefined reference" in lower:
+            #errors.append(s)
+            current_error = raw_line
+    
+    if current_warning:
+        warnings.append(current_warning)
+    if current_error:
+        errors.append(current_error)
+
     return {"warnings": warnings, "errors": errors}
+
+
+def _is_gcc_diagnostic_continuation(line: str) -> bool:
+    stripped = line.lstrip()
+    return bool(
+        re.match(r"^\d+\s*\|\s*", stripped)
+        or re.match(r"^\|\s*[\^~]", stripped)
+    )
 
 
 def _cleanup_paths(paths: List[str]) -> None:

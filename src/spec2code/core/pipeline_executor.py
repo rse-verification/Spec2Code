@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -84,6 +83,81 @@ def _render_critic_timing_report(entry: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _format_diagnostic_value(value: Any, *, indent: int = 0) -> List[str]:
+    prefix = " " * indent
+
+    if isinstance(value, dict):
+        lines: List[str] = []
+        for key, nested_value in value.items():
+            if isinstance(nested_value, (dict, list)):
+                lines.append(f"{prefix}- {key}:")
+                lines.extend(_format_diagnostic_value(nested_value, indent=indent + 2))
+            else:
+                lines.append(f"{prefix}- {key}: {nested_value}")
+        return lines
+
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            if isinstance(item, (dict, list)):
+                lines.append(f"{prefix}-")
+                lines.extend(_format_diagnostic_value(item, indent=indent + 2))
+            else:
+                lines.append(f"{prefix}- {item}")
+        return lines
+
+    return [f"{prefix}{value}"]
+
+
+def _format_diagnostic_payload_for_llm(diagnostic_payload: Dict[str, Any]) -> str:
+    """
+    Render critic diagnostics in a readable form for repair prompts.
+    """
+
+    lines: List[str] = [
+        "Verification summary:",
+        f"- Critics passed: {bool(diagnostic_payload.get('critics_success', False))}",
+        f"- Critics score: {diagnostic_payload.get('critics_score')}",
+        f"- Verification passed: {bool(diagnostic_payload.get('verify_success', False))}",
+    ]
+
+    verify_message = diagnostic_payload.get("verify_message")
+    if verify_message:
+        lines.append(f"- Verification message: {verify_message}")
+
+    error = diagnostic_payload.get("error")
+    if error:
+        lines.extend(["", "Pipeline error:", str(error)])
+
+    critics = [
+        critic for critic in list(diagnostic_payload.get("critics_results") or [])
+        if isinstance(critic, dict)
+    ]
+    lines.extend(["", "Failed critic diagnostics:"])
+
+    if not critics:
+        lines.append("- No failed critic diagnostics were captured.")
+        return "\n".join(lines)
+
+    for index, critic in enumerate(critics, start=1):
+        tool = str(critic.get("tool") or f"critic_{index}")
+        lines.extend(["", f"{index}. {tool}"])
+
+        for key in ("summary", "findings", "metrics", "raw_output"):
+            value = critic.get(key)
+            if not value:
+                continue
+
+            title = key.replace("_", " ").title()
+            if isinstance(value, (dict, list)):
+                lines.append(f"{title}:")
+                lines.extend(_format_diagnostic_value(value, indent=2))
+            else:
+                lines.append(f"{title}: {value}")
+
+    return "\n".join(lines)
+
+
 def _build_repair_prompt(
     *,
     original_prompt: str,
@@ -121,15 +195,8 @@ def _build_repair_prompt(
         "verify_message": attempt_entry.get("verify_message"),
     }
 
-    """
-    if failed_critics:
-        diagnostic_payload["critics_results"] = [
-            {k: critic[k] for k in keep if k in critic}
-            for critic in failed_critics
-        ]"""
-
     # Extract diagnostics from critic results
-    keep = ("tool", "summary", "findings", "metrics", "raw_output")
+    keep = ("tool", "summary", "findings", "metrics")
 
     critic_diagnostics: List[Dict] = []
     for critic in failed_critics:
@@ -139,11 +206,7 @@ def _build_repair_prompt(
 
             value = critic.get(k, "")
             if not value:
-                break
-            
-            # Truncate output if too long
-            if k == "raw_output" and isinstance(value, str):
-                value = value[:500]
+                continue
 
             c_entry.update({k: value})
         
@@ -154,37 +217,42 @@ def _build_repair_prompt(
     if attempt_entry.get("error"):
         diagnostic_payload["error"] = attempt_entry.get("error")
 
-    repair_section: List[str] = [
-        "The following previously generated C implementation failed verification.",
-        "Repair the previous answer. Keep the same required output format as the original prompt.",
-        "Do not explain the changes. Return only the corrected implementation in the requested format.",
-        "Prioritize fixing the failed critic diagnostics below. Do not introduce unrelated rewrites.",
+    repair_prompt: List[str] = [
+        "===== Original Task =====",
+        "",
+        original_prompt,
+        "",
+        "===== Previous Implementation =====",
         "",
         "Previous C code:",
         "```c",
         code,
         "```",
+        ""
     ]
 
     if header:
-        repair_section.extend([
-            "",
+        repair_prompt.extend([
             "Previous generated header:",
             "```c",
             header,
             "```",
-        ])
-
-    if critic_diagnostics:
-        repair_section.extend([
             "",
-            "Verification diagnostics:",
-            "```json",
-            json.dumps(diagnostic_payload, indent=2, default=str),
-            "```",
         ])
+    
+    repair_prompt.extend([
+        "===== Failed Verification =====",
+        "",
+        _format_diagnostic_payload_for_llm(diagnostic_payload),
+        "",
+        "===== Repair Objective =====",
+        "",
+        "Produce a corrected implementation that satisfies the original specification.",
+        "Modify only what is necessary to resolve the reported verification failures.",
+        "Return only the corrected implementation using the original output format."
+    ])
 
-    return f"{original_prompt.rstrip()}\n\n" + "\n".join(repair_section)
+    return "\n".join(repair_prompt)
 
 
 @dataclass(frozen=True)
