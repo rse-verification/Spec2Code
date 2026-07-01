@@ -474,7 +474,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
 
                 _log(
                     f"  [program {i+1}/{cfg.n_programs_generated}] "
-                    f"  attempt {gen_iter+1}/{max_generation_iterations} done in {_fmt_duration(elapsed_attempt)} "
+                    f"attempt {gen_iter+1}/{max_generation_iterations} done in {_fmt_duration(elapsed_attempt)} "
                 )
 
                 export_json(os.path.join(attempt_dir, "output.json"), entry)
