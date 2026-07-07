@@ -10,6 +10,7 @@ from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
 from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
 from spec2code.pipeline_modules.critics.critics_binary_size import BinarySizeCritic
+from spec2code.pipeline_modules.critics.critics_esbmc import ESBMCCritic
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -91,6 +92,10 @@ def _build_binary_size(opts: Dict[str, Any], _solvers: list, _timeout: int) -> C
     limit = int(opts.get("binary_size_limit_bytes", 1024))
     return BinarySizeCritic(binary_size_limit_bytes=limit)
 
+def _build_esbmc(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
+    main_function = opts.get("main_function", None)
+    return ESBMCCritic(esbmc_options=opts.get("esbmc_options"), main_function=main_function)
+
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "compile": _build_compile,
     "cppcheck-misra": _build_cppcheck_misra,
@@ -99,6 +104,7 @@ CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "vernfr-data-flow": _build_vernfr_data,
     "valgrind": _build_valgrind,
     "binary_size": _build_binary_size,
+    "esbmc": _build_esbmc,
 }
 
 
@@ -218,10 +224,30 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
     {
         "name": "binary_size",
         "label": "Binary Size",
-        "default_enabled": True,
+        "default_enabled": False,
         "options": [
             {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
             {"key": "binary_size_limit_bytes", "type": "int", "label": "Binary Size Limit (bytes)", "default": 1024},
+        ],
+    },
+    {
+        "name": "esbmc",
+        "label": "ESBMC",
+        "default_enabled": True,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {
+                "key": "esbmc_options",
+                "type": "string",
+                "label": "ESBMC Options",
+                "default": "",
+            },
+            {
+                "key": "main_function",
+                "type": "string",
+                "label": "Main Function (optional)",
+                "default": "",
+            },
         ],
     },
 ]

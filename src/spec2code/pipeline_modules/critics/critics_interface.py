@@ -12,6 +12,7 @@ class Finding(TypedDict):
     message: str
     location: Optional[dict]
     rule: Optional[str]
+    counter_example: NotRequired[Dict[str, Any]]
 
 
 class CriticResult(TypedDict):

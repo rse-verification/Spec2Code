@@ -47,7 +47,9 @@ class VernfrCritic:
 
         main = str(ctx.get("main") or "").strip()
         if not main:
-            main = _infer_main_from_interface_text(interface_text) or "main"
+            main = str(ctx.get("inferred_main_function") or 
+                       _infer_main_from_interface_text(interface_text) or 
+                       "main")
 
         script_path = str(ctx.get("script_path") or self.default_script_path or "")
         if not script_path:

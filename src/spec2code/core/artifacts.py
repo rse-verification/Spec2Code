@@ -210,6 +210,10 @@ def process_llm_generated_code(
     if use_ver_header:
         critic_targets["framac-wp"] = "spec"
 
+    inferred_main_function = _infer_main_from_interface_text(interface_text)
+    if inferred_main_function:
+        base_context["inferred_main_function"] = inferred_main_function
+
     critics_out = run_critics_on_artifacts(
         critics=critics,
         raw_c_path=raw_c,
@@ -228,3 +232,16 @@ def process_llm_generated_code(
     out["verify_success"] = bool(out.get("critics_success", False))
     out["verify_message"] = "All critics passed." if out["verify_success"] else "At least one critic failed."
     return out
+
+def _infer_main_from_interface_text(interface_text: str) -> Optional[str]:
+    txt = str(interface_text or "")
+    if not txt.strip():
+        return None
+
+    m = re.search(r"entry_functions\s*:\s*\{(?P<body>.*?)\}", txt, flags=re.IGNORECASE | re.DOTALL)
+    search_body = m.group("body") if m else txt
+
+    m_fn = re.search(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", search_body)
+    if m_fn:
+        return m_fn.group(1)
+    return None

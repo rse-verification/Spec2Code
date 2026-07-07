@@ -314,6 +314,7 @@ Configurable critics:
 - `vernfr-control-flow`
 - `vernfr-data-flow`
 - `valgrind`
+- `esbmc`
 
 Vernfr support is optional. Build/install it only when you want Vernfr critics.
 If Vernfr is not installed, other critics still work normally.
