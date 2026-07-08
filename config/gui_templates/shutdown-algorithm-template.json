@@ -21,9 +21,9 @@
     "framac_wp_timeout_s": 2,
     "framac_wp_no_let": true,
     "critics": [
-      "compile",
-      "framac-wp",
-      "cppcheck-misra"
-    ]
+      "binary-size"
+    ],
+    "critic_options": {
+    }
   }
 ]

@@ -9,6 +9,7 @@ from spec2code.pipeline_modules.critics.critics_compile import CompileCritic
 from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic
 from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
+from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
 
 
 class _FakeCritic:
@@ -88,19 +89,21 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     custom_script = str(tmp_path / "vernfr.sh")
 
     critics = critics_runner.build_critics_from_names(
-        names=["cppcheck-misra", "framac-wp", "vernfr-control-flow"],
+        names=["cppcheck-misra", "framac-wp", "vernfr-control-flow", "valgrind"],
         solvers=["Alt-Ergo"],
         timeout=60,
         critic_options={
             "cppcheck-misra": {"timeout": 123, "misra_rules_path": custom_rules},
             "framac-wp": {"timeout": 77, "wp_timeout": 5, "model": "typed", "rte": False},
             "vernfr-control-flow": {"timeout": 41, "script_path": custom_script},
+            "valgrind": {"heap_limit_bytes": 2048, "stack_limit_bytes": 1024},
         },
     )
 
     cpp = critics[0]
     framac = critics[1]
     vernfr = critics[2]
+    valgrind = critics[3]
 
     assert isinstance(cpp, CppcheckMisraCritic)
     assert cpp.timeout == 123
@@ -116,6 +119,11 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     assert vernfr.timeout == 41
     assert vernfr.default_script_path == custom_script
     assert vernfr.name == "vernfr-control-flow"
+
+    assert isinstance(valgrind, ValgrindCritic)
+    assert valgrind.massif is True
+    assert valgrind.heap_limit_bytes == 2048
+    assert valgrind.stack_limit_bytes == 1024
 
 
 @pytest.mark.unit

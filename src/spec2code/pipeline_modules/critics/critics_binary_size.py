@@ -8,7 +8,24 @@ from src.spec2code.pipeline_modules.subprocess_creator import run_command
 
 
 class BinarySizeCritic:
-    name = "binary_size"
+    """
+    Binary-size critic
+    ------------------
+
+    Analyses the size of the compiled binary and checks if it is below the user specified limit.
+
+    This critic both compiles the generated c code to an object file and uses the Linux command "size" to determine the size of the file in bytes.
+
+    Uses inp["c_file_path"].
+
+    Optional via inp.get("context", {}):
+      - gcc_flags: List[str]        (default: ["-c"])
+      - include_dirs: List[str]     (default: [])
+      - defines: List[str]          (default: [])
+ 
+    """
+
+    name = "binary-size"
 
     def __init__(
         self,

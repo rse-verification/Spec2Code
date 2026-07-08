@@ -23,6 +23,11 @@ def _write_massif_report(tmp_path: Path, name: str = "massif.out") -> Path:
     p.write_text(massif_report_success, encoding="utf-8")
     return p
 
+def _write_massif_limit_report(tmp_path: Path, name: str = "massif.out") -> Path:
+    p = tmp_path / name
+    p.write_text(massif_report_with_usage, encoding="utf-8")
+    return p
+
 memcheck_output_success = """==1376107== Memcheck, a memory error detector
 ==1376107== Copyright (C) 2002-2024, and GNU GPL'd, by Julian Seward et al.
 ==1376107== Using Valgrind-3.26.0 and LibVEX; rerun with -h for copyright info
@@ -72,6 +77,35 @@ time=0
 mem_heap_B=0
 mem_heap_extra_B=0
 mem_stacks_B=0
+heap_tree=empty
+"""
+
+massif_report_with_usage = """desc: (none)
+cmd: ./test.out
+time_unit: i
+#-----------
+snapshot=0
+#-----------
+time=0
+mem_heap_B=256
+mem_heap_extra_B=16
+mem_stacks_B=64
+heap_tree=empty
+#-----------
+snapshot=1
+#-----------
+time=10
+mem_heap_B=1024
+mem_heap_extra_B=32
+mem_stacks_B=128
+heap_tree=empty
+#-----------
+snapshot=2
+#-----------
+time=20
+mem_heap_B=512
+mem_heap_extra_B=16
+mem_stacks_B=4096
 heap_tree=empty
 """
 
@@ -345,6 +379,91 @@ def test_valgrind_massif_success(tmp_path, monkeypatch):
     assert result["success"] is True
     assert result["score"] == 1.0
     assert "Massif analysis completed. Peak heap: " in result["summary"]
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_valgrind_massif_reports_limits_within_bounds(tmp_path, monkeypatch):
+    
+    exe = _write_executable(tmp_path)
+    c_file = _write_c_file(tmp_path)
+
+    def _fake_run_command(cmd, timeout, cwd):
+        assert "--tool=massif" in cmd
+        _write_massif_limit_report(tmp_path)
+        return "", "", True, 0
+
+    monkeypatch.setattr(
+        critics_valgrind,
+        "run_command",
+        _fake_run_command,
+    )
+
+    critic = critics_valgrind.ValgrindCritic(
+        massif=False,
+        memcheck=False,
+        heap_limit_bytes=2048,
+        stack_limit_bytes=8192,
+    )
+
+    input = {"c_file_path": str(c_file), 
+             "timeout": 5,
+             "context": {
+                 "compiled_output_path": str(exe)
+                }
+             }
+
+    result = critic.run(input)
+
+    assert result["success"] is True
+    assert result["metrics"]["peak_heap_bytes"] == 1024
+    assert result["metrics"]["peak_stack_bytes"] == 4096
+    assert result["metrics"]["heap_limit_bytes"] == 2048
+    assert result["metrics"]["stack_limit_bytes"] == 8192
+    assert result["metrics"]["heap_below_limit"] is True
+    assert result["metrics"]["stack_below_limit"] is True
+    assert "Peak heap usage 1024 bytes is within limit 2048 bytes." in result["summary"]
+    assert "Peak stack usage 4096 bytes is within limit 8192 bytes." in result["summary"]
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_valgrind_massif_fails_when_limit_exceeded(tmp_path, monkeypatch):
+    
+    exe = _write_executable(tmp_path)
+    c_file = _write_c_file(tmp_path)
+
+    def _fake_run_command(cmd, timeout, cwd):
+        assert "--tool=massif" in cmd
+        _write_massif_limit_report(tmp_path)
+        return "", "", True, 0
+
+    monkeypatch.setattr(
+        critics_valgrind,
+        "run_command",
+        _fake_run_command,
+    )
+
+    critic = critics_valgrind.ValgrindCritic(
+        massif=True,
+        memcheck=False,
+        heap_limit_bytes=1000,
+        stack_limit_bytes=4096,
+    )
+
+    input = {"c_file_path": str(c_file), 
+             "timeout": 5,
+             "context": {
+                 "compiled_output_path": str(exe)
+                }
+             }
+
+    result = critic.run(input)
+
+    assert result["success"] is False
+    assert result["score"] == 0.0
+    assert result["metrics"]["heap_below_limit"] is False
+    assert result["metrics"]["stack_below_limit"] is True
+    assert "Peak heap usage 1024 bytes exceeds limit 1000 bytes." in result["summary"]
+    assert any(f["rule"] == "massif-heap-limit" and f["severity"] == "error" for f in result["findings"])
 
 @pytest.mark.unit
 @pytest.mark.critics

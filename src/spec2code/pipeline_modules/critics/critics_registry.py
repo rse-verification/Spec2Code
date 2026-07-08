@@ -84,9 +84,16 @@ def _build_vernfr_data(opts: Dict[str, Any], _solvers: list, timeout: int) -> Cr
     return critic
 
 def _build_valgrind(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
+    heap_limit_bytes = int(opts.get("heap_limit_bytes", 0) or 0)
+    stack_limit_bytes = int(opts.get("stack_limit_bytes", 0) or 0)
     use_massif = bool(opts.get("massif", False))
     use_memcheck = bool(opts.get("memcheck", True))
-    return ValgrindCritic(massif=use_massif, memcheck=use_memcheck)
+    return ValgrindCritic(
+        massif=use_massif,
+        memcheck=use_memcheck,
+        heap_limit_bytes=heap_limit_bytes,
+        stack_limit_bytes=stack_limit_bytes,
+    )
 
 def _build_binary_size(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
     limit = int(opts.get("binary_size_limit_bytes", 1024))
@@ -103,7 +110,7 @@ CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "vernfr-control-flow": _build_vernfr_control,
     "vernfr-data-flow": _build_vernfr_data,
     "valgrind": _build_valgrind,
-    "binary_size": _build_binary_size,
+    "binary-size": _build_binary_size,
     "esbmc": _build_esbmc,
 }
 
@@ -213,6 +220,8 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
             {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
             {"key": "memcheck", "type": "bool", "label": "Memcheck", "default": True},
             {"key": "massif", "type": "bool", "label": "Massif", "default": False},
+            {"key": "heap_limit_bytes", "type": "int", "label": "Heap Limit (bytes)", "default": 0},
+            {"key": "stack_limit_bytes", "type": "int", "label": "Stack Limit (bytes)", "default": 0},
             {
                 "key": "executable_args",
                 "type": "string",
@@ -222,7 +231,7 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
         ],
     },
     {
-        "name": "binary_size",
+        "name": "binary-size",
         "label": "Binary Size",
         "default_enabled": False,
         "options": [

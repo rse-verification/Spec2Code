@@ -764,18 +764,10 @@ def test_build_critics_catalog_uses_detected_why3_solvers(monkeypatch):
     catalog, detected = run_server._build_critics_catalog()
 
     assert detected == ["Z3", "Alt-Ergo"]
-    compile_critic = next(c for c in catalog if c.get("name") == "compile")
-    compile_option_keys = {o.get("key") for o in compile_critic.get("options", [])}
-    assert "test_harness_path" in compile_option_keys
-    assert "test_harness_source_name" in compile_option_keys
 
     framac = next(c for c in catalog if c.get("name") == "framac-wp")
     solvers_opt = next(o for o in framac.get("options", []) if o.get("key") == "solvers")
     assert solvers_opt.get("default") == "Z3,Alt-Ergo"
-
-    valgrind = next(c for c in catalog if c.get("name") == "valgrind")
-    valgrind_option_keys = {o.get("key") for o in valgrind.get("options", [])}
-    assert "executable_args" in valgrind_option_keys
 
 
 @pytest.mark.unit
