@@ -242,7 +242,7 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
     {
         "name": "esbmc",
         "label": "ESBMC",
-        "default_enabled": True,
+        "default_enabled": False,
         "options": [
             {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
             {

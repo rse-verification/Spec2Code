@@ -4,7 +4,7 @@ import shlex
 from typing import Any, Dict, List
 
 from spec2code.pipeline_modules.critics.critics_interface import CriticInput, CriticResult
-from src.spec2code.pipeline_modules.subprocess_creator import run_command
+from spec2code.pipeline_modules.subprocess_creator import run_command
 
 
 class BinarySizeCritic:
