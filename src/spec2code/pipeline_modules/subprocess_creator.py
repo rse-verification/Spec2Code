@@ -2,6 +2,7 @@ import subprocess
 import shlex
 import re
 import os
+import signal
 
 
 _TIME_RX = re.compile(r"^\s*(real|user|sys)\s+([0-9]+(?:\.[0-9]+)?)\s*$")
@@ -49,12 +50,28 @@ def run_command(command: str, timeout: int, cwd: str | None = None) -> tuple:
             - Process timing metrics from `/usr/bin/time -p` with keys: real, user, sys.
     """
     timed_command = _wrap_with_time(command)
-    process = subprocess.Popen(timed_command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, shell=True, cwd=cwd)
+    process = subprocess.Popen(
+        timed_command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        shell=True,
+        cwd=cwd,
+        # The command string is executed through a shell. Give it a distinct
+        # process group so that a timeout can stop the shell and its children.
+        start_new_session=(os.name != "nt"),
+    )
     try:
-        process.wait(timeout=timeout)
-        stdout, stderr = process.communicate()
+        # communicate() drains both pipes while the child is running. Using
+        # wait() first can deadlock when a verbose tool (such as Frama-C WP)
+        # fills stdout or stderr before it exits.
+        stdout, stderr = process.communicate(timeout=timeout)
         stderr_text, timing = _extract_time_metrics(stderr.decode("utf-8", errors="replace"))
         return stdout.decode("utf-8", errors="replace"), stderr_text, True, process.returncode, timing
     except subprocess.TimeoutExpired:
-        process.kill()
+        if os.name != "nt":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+        # Reap the process and close the pipes after terminating it.
+        process.communicate()
         return "", "Timeout", False, None, {}

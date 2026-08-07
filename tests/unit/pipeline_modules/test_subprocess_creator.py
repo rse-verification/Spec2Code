@@ -1,13 +1,22 @@
 from __future__ import annotations
 
+import shlex
+import sys
+
 import pytest
 
 from spec2code.pipeline_modules import subprocess_creator
 
 
+_PYTHON = shlex.quote(sys.executable)
+
+
 @pytest.mark.unit
 def test_run_command_returns_exit_code_on_success():
-    stdout, stderr, completed, exit_code, timing = subprocess_creator.run_command("python -c \"print('ok')\"", timeout=5)
+    stdout, stderr, completed, exit_code, timing = subprocess_creator.run_command(
+        f'{_PYTHON} -c "print(\'ok\')"',
+        timeout=5,
+    )
 
     assert completed is True
     assert exit_code == 0
@@ -18,7 +27,10 @@ def test_run_command_returns_exit_code_on_success():
 
 @pytest.mark.unit
 def test_run_command_returns_nonzero_exit_code():
-    stdout, stderr, completed, exit_code, timing = subprocess_creator.run_command("python -c \"import sys; sys.exit(7)\"", timeout=5)
+    stdout, stderr, completed, exit_code, timing = subprocess_creator.run_command(
+        f'{_PYTHON} -c "import sys; sys.exit(7)"',
+        timeout=5,
+    )
 
     assert completed is True
     assert exit_code == 7
@@ -30,7 +42,7 @@ def test_run_command_returns_nonzero_exit_code():
 @pytest.mark.unit
 def test_run_command_timeout_returns_incomplete_and_none_exit_code():
     stdout, stderr, completed, exit_code, timing = subprocess_creator.run_command(
-        "python -c \"import time; time.sleep(2)\"",
+        f'{_PYTHON} -c "import time; time.sleep(2)"',
         timeout=1,
     )
 
@@ -39,3 +51,17 @@ def test_run_command_timeout_returns_incomplete_and_none_exit_code():
     assert stdout == ""
     assert stderr == "Timeout"
     assert timing == {}
+
+
+@pytest.mark.unit
+def test_run_command_drains_large_output_without_timing_out():
+    stdout, stderr, completed, exit_code, timing = subprocess_creator.run_command(
+        "yes X | head -c 200000",
+        timeout=3,
+    )
+
+    assert completed is True
+    assert exit_code == 0
+    assert len(stdout) == 200000
+    assert stderr == ""
+    assert timing.get("real", 0.0) >= 0.0
