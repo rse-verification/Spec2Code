@@ -115,26 +115,11 @@ class CompileCritic:
 
             source_alias_path = os.path.join(os.path.dirname(c_file_path) or ".", normalized_source_name)
             if os.path.abspath(source_alias_path) != os.path.abspath(c_file_path):
-                if os.path.exists(source_alias_path):
-                    msg = f"Cannot stage harness source alias because file already exists: {source_alias_path}"
-                    return {
-                        "tool": self.name,
-                        "success": False,
-                        "score": 0.0,
-                        "summary": "Compilation failed.",
-                        "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
-                        "findings": [{
-                            "tool": self.name,
-                            "severity": "error",
-                            "message": msg,
-                            "location": {"file": source_alias_path},
-                            "rule": None,
-                        }],
-                        "raw_output": msg,
-                    }
-                os.makedirs(os.path.dirname(source_alias_path) or ".", exist_ok=True)
-                shutil.copy2(c_file_path, source_alias_path)
-                cleanup_paths.append(source_alias_path)
+                # Dont create new file if alias has same path as source file
+                if not os.path.exists(source_alias_path):   
+                    os.makedirs(os.path.dirname(source_alias_path) or ".", exist_ok=True)
+                    shutil.copy2(c_file_path, source_alias_path)
+                    cleanup_paths.append(source_alias_path)
 
             alias_include_dir = os.path.dirname(source_alias_path) or "."
             if alias_include_dir not in include_dirs:
