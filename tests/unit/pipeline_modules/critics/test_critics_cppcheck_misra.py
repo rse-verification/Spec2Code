@@ -164,14 +164,14 @@ def test_cppcheck_run_uses_rule_texts_and_keeps_dump_phase_plain(tmp_path, monke
 
 @pytest.mark.unit
 @pytest.mark.critics
-def test_cppcheck_run_generated_files_fallback_to_allowed(tmp_path, monkeypatch):
+def test_cppcheck_run_always_gates_the_analyzed_c_file(tmp_path, monkeypatch):
     c_file, rules = _base_paths(tmp_path)
     hdr = _write(tmp_path / "src" / "main.h", "#pragma once\n")
     _write(Path(f"{c_file}.dump"), "dump")
 
     seq = [
         ("dump ok", "", False, 0),
-        ("", "", False, 0),
+        ("[src/main.c:10]: (Advisory) [misra-c2012-8.9] violation\n", "", False, 1),
     ]
 
     monkeypatch.setattr(critics_cppcheck_misra, "_run_command_streaming", lambda *a, **k: seq.pop(0))
@@ -179,7 +179,9 @@ def test_cppcheck_run_generated_files_fallback_to_allowed(tmp_path, monkeypatch)
 
     result = critic.run({"c_file_path": str(c_file), "context": {"generated_header_path": str(hdr)}})
     native = result["metrics"]["native"]
-    assert native["generated_files"] == [str(hdr)]
+    assert result["success"] is False
+    assert result["metrics"]["misra_advisory_generated"] == 1
+    assert native["generated_files"] == [str(c_file), str(hdr)]
     assert native["allowed_files"] == [str(c_file), str(hdr)]
 
 
