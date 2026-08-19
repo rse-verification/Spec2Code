@@ -58,13 +58,28 @@ def _build_framac_wp(opts: Dict[str, Any], solvers: list, timeout: int) -> Criti
     smoke_tests = bool(opts.get("smoke_tests", False))
     model = opts.get("model", "real")
     rte = bool(opts.get("rte", True))
+    inline_calls = opts.get("inline-calls", opts.get("inline_calls"))
+    configured_solvers = opts.get("solvers")
+    if configured_solvers is None:
+        framac_solvers = list(solvers or [])
+    elif isinstance(configured_solvers, str):
+        framac_solvers = [
+            solver.strip() for solver in configured_solvers.split(",") if solver.strip()
+        ]
+    elif isinstance(configured_solvers, (list, tuple)):
+        framac_solvers = [
+            str(solver).strip() for solver in configured_solvers if str(solver).strip()
+        ]
+    else:
+        raise ValueError("framac-wp option 'solvers' must be a list or comma-separated string")
     return FramaCWPCritic(
-        solvers=solvers,
+        solvers=framac_solvers,
         wp_timeout=wp_timeout,
         smoke_tests=smoke_tests,
         timeout=critic_timeout,
         model=model,
         rte=rte,
+        inline_calls=inline_calls,
     )
 
 
@@ -169,6 +184,12 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
             {"key": "wp_timeout", "type": "int", "label": "WP Timeout (s)", "default": 2},
             {"key": "solvers", "type": "string", "label": "Solvers (comma-separated)", "default": "Alt-Ergo"},
             {
+                "key": "inline-calls",
+                "type": "string",
+                "label": "Inline Calls (-inline-calls <arg>)",
+                "default": "",
+            },
+            {
                 "key": "formal_c_path",
                 "type": "path",
                 "label": "Formal Spec Path",
@@ -176,6 +197,12 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "ext": ".c,.h",
             },
             {"key": "framac_wp_no_let", "type": "bool", "label": "No Let", "default": False},
+            {
+                "key": "framac_wp_no_split_switch",
+                "type": "bool",
+                "label": "No Split Switch",
+                "default": False,
+            },
             {"key": "model", "type": "string", "label": "Model", "default": "real"},
             {"key": "rte", "type": "bool", "label": "Enable RTE", "default": True},
             {"key": "smoke_tests", "type": "bool", "label": "Smoke Tests", "default": False},

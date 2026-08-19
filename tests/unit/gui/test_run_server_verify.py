@@ -138,7 +138,12 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
                     "test_harness_path": str(harness_file),
                     "test_harness_source_name": "main.c",
                 },
-                "framac-wp": {"wp_timeout": 7, "solvers": "Alt-Ergo", "framac_wp_no_let": True},
+                "framac-wp": {
+                    "wp_timeout": 7,
+                    "solvers": "Alt-Ergo",
+                    "framac_wp_no_let": True,
+                    "inline-calls": "ShutdownAlgorithm_10ms",
+                },
                 "valgrind": {"executable_args": '--case smoke --name "phase one"'},
             },
         }
@@ -159,6 +164,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert build_kwargs["critic_options"]["framac-wp"]["wp_timeout"] == 7
     assert "solvers" not in build_kwargs["critic_options"]["framac-wp"]
     assert build_kwargs["critic_options"]["framac-wp"]["framac_wp_no_let"] is True
+    assert build_kwargs["critic_options"]["framac-wp"]["inline-calls"] == "ShutdownAlgorithm_10ms"
 
     run_kwargs = captured["run"]
     assert run_kwargs["raw_c_path"].endswith("main.c")
@@ -177,6 +183,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert run_kwargs["base_context"]["generated_files"] == [str(c_file)]
     assert run_kwargs["critic_configs"]["compile"]["test_harness_path"] == str(harness_file)
     assert run_kwargs["critic_configs"]["framac-wp"]["framac_wp_no_let"] is True
+    assert run_kwargs["critic_configs"]["framac-wp"]["inline-calls"] == "ShutdownAlgorithm_10ms"
     assert run_kwargs["critic_configs"]["valgrind"]["executable_args"] == '--case smoke --name "phase one"'
 
     verify_report = tmp_path / "output" / "reports" / "latest-verify.json"
@@ -768,6 +775,8 @@ def test_build_critics_catalog_uses_detected_why3_solvers(monkeypatch):
     framac = next(c for c in catalog if c.get("name") == "framac-wp")
     solvers_opt = next(o for o in framac.get("options", []) if o.get("key") == "solvers")
     assert solvers_opt.get("default") == "Z3,Alt-Ergo"
+    inline_calls_opt = next(o for o in framac.get("options", []) if o.get("key") == "inline-calls")
+    assert inline_calls_opt.get("type") == "string"
 
 
 @pytest.mark.unit

@@ -53,6 +53,7 @@ def test_build_default_critics_respects_framac_options():
                 "smoke_tests": True,
                 "model": "typed",
                 "rte": False,
+                "inline-calls": "ShutdownAlgorithm_10ms",
             }
         },
     )
@@ -69,6 +70,7 @@ def test_build_default_critics_respects_framac_options():
     assert framac.smoke_tests is True
     assert framac.model == "typed"
     assert framac.rte is False
+    assert framac.inline_calls == "ShutdownAlgorithm_10ms"
     assert framac.timeout == 88
 
 

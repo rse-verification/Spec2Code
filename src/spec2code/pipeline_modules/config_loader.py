@@ -310,6 +310,11 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         if framac_wp_no_let:
             critic_context.setdefault("framac_wp_no_let", True)
 
+    if "framac_wp_no_split_switch" in cfg:
+        framac_wp_no_split_switch = _optional_bool(cfg, "framac_wp_no_split_switch", False)
+        if framac_wp_no_split_switch:
+            critic_context.setdefault("framac_wp_no_split_switch", True)
+
     # Frama-C verification header can be provided directly in critic_options.
     framac_opts = dict(critic_options.get("framac-wp", {}))
     vht = framac_opts.get("verification_header_template_path")
