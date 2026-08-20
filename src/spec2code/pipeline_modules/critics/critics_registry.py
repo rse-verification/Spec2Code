@@ -118,6 +118,12 @@ def _build_esbmc(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
     return ESBMCCritic(
         esbmc_options=opts.get("esbmc_options"),
         function_names=opts.get("function_names"),
+        uninitialised_vars_check=bool(opts.get("uninitialised_vars_check", False)),
+        struct_fields_check=bool(opts.get("struct_fields_check", False)),
+        strict_types=bool(opts.get("strict_types", False)),
+        ub_shift_check=bool(opts.get("ub_shift_check", False)),
+        unsigned_overflow_check=bool(opts.get("unsigned_overflow_check", False)),
+        stack_limit=opts.get("stack_limit"),
     )
 
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
@@ -283,7 +289,46 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
             {
                 "key": "function_names",
                 "type": "string",
-                "label": "Function Names (comma-separated)",
+                "label": (
+                    "Function Names (optional; comma-separated; blank analyzes all "
+                    "interface entry functions)"
+                ),
+                "default": "",
+            },
+            {
+                "key": "uninitialised_vars_check",
+                "type": "bool",
+                "label": "Check Uninitialised Variables",
+                "default": False,
+            },
+            {
+                "key": "struct_fields_check",
+                "type": "bool",
+                "label": "Check Struct Field Reads",
+                "default": False,
+            },
+            {
+                "key": "strict_types",
+                "type": "bool",
+                "label": "Strict Types",
+                "default": False,
+            },
+            {
+                "key": "ub_shift_check",
+                "type": "bool",
+                "label": "Check Undefined Shift Behavior",
+                "default": False,
+            },
+            {
+                "key": "unsigned_overflow_check",
+                "type": "bool",
+                "label": "Check Unsigned Overflow",
+                "default": False,
+            },
+            {
+                "key": "stack_limit",
+                "type": "int",
+                "label": "Stack Limit (bits, optional)",
                 "default": "",
             },
         ],

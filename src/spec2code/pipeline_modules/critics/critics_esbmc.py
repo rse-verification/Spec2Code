@@ -1,8 +1,9 @@
 from __future__ import annotations
+
 import os
 import re
-from typing import Any, Dict, List, Sequence
 import shlex
+from typing import Any, Dict, List, Sequence
 
 from spec2code.pipeline_modules.critics.critics_interface import CriticInput, CriticResult
 from spec2code.pipeline_modules.subprocess_creator import run_command
@@ -21,6 +22,12 @@ class ESBMCCritic:
       - entry_functions: List[str]      (default: [])
       - function_names: List[str]|str   (default: [])
       - esbmc_options: List[str]|str    (default: [])
+      - uninitialised_vars_check: bool  (default: False)
+      - struct_fields_check: bool       (default: False)
+      - strict_types: bool              (default: False)
+      - ub_shift_check: bool            (default: False)
+      - unsigned_overflow_check: bool   (default: False)
+      - stack_limit: int|str|None       (default: None)
 
     Each interface entry function is checked independently. An optional function_names
     critic option overrides the interface entry-function list.
@@ -28,13 +35,25 @@ class ESBMCCritic:
     name = "esbmc"
 
     def __init__(
-            self, 
-            *, 
-            esbmc_options: Sequence[str] | str | None = None,
-            function_names: Sequence[str] | str | None = None,
-            ):
+        self,
+        *,
+        esbmc_options: Sequence[str] | str | None = None,
+        function_names: Sequence[str] | str | None = None,
+        uninitialised_vars_check: bool = False,
+        struct_fields_check: bool = False,
+        strict_types: bool = False,
+        ub_shift_check: bool = False,
+        unsigned_overflow_check: bool = False,
+        stack_limit: int | str | None = None,
+    ):
         self.esbmc_options = _normalize_esbmc_options(esbmc_options)
         self.function_names = _normalize_function_names(function_names)
+        self.uninitialised_vars_check = bool(uninitialised_vars_check)
+        self.struct_fields_check = bool(struct_fields_check)
+        self.strict_types = bool(strict_types)
+        self.ub_shift_check = bool(ub_shift_check)
+        self.unsigned_overflow_check = bool(unsigned_overflow_check)
+        self.stack_limit = _normalize_stack_limit(stack_limit)
 
     def run(self, inp: CriticInput) -> CriticResult:
         c_file_path = inp["c_file_path"]
@@ -42,7 +61,19 @@ class ESBMCCritic:
         ctx = dict(inp.get("context", {}))
 
         include_dirs: List[str] = list(ctx.get("include_dirs", []))
-        esbmc_options = _normalize_esbmc_options(ctx.get("esbmc_options", self.esbmc_options))
+        esbmc_options = _configured_esbmc_options(
+            base_options=ctx.get("esbmc_options", self.esbmc_options),
+            uninitialised_vars_check=ctx.get(
+                "uninitialised_vars_check", self.uninitialised_vars_check
+            ),
+            struct_fields_check=ctx.get("struct_fields_check", self.struct_fields_check),
+            strict_types=ctx.get("strict_types", self.strict_types),
+            ub_shift_check=ctx.get("ub_shift_check", self.ub_shift_check),
+            unsigned_overflow_check=ctx.get(
+                "unsigned_overflow_check", self.unsigned_overflow_check
+            ),
+            stack_limit=ctx.get("stack_limit", self.stack_limit),
+        )
 
         configured_function_names = _normalize_function_names(
             ctx.get("function_names", self.function_names)
@@ -198,6 +229,49 @@ def _normalize_esbmc_options(value: Sequence[str] | str | None) -> List[str]:
         stripped = value.strip()
         return shlex.split(stripped) if stripped else []
     return [str(part) for part in value if str(part).strip()]
+
+
+def _normalize_stack_limit(value: Any) -> int | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool):
+        raise ValueError("ESBMC stack_limit must be an integer")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("ESBMC stack_limit must be an integer") from exc
+
+
+def _configured_esbmc_options(
+    *,
+    base_options: Sequence[str] | str | None,
+    uninitialised_vars_check: Any = False,
+    struct_fields_check: Any = False,
+    strict_types: Any = False,
+    ub_shift_check: Any = False,
+    unsigned_overflow_check: Any = False,
+    stack_limit: Any = None,
+) -> List[str]:
+    options = _normalize_esbmc_options(base_options)
+    enabled_flags = (
+        (uninitialised_vars_check, "--uninitialised-vars-check"),
+        (struct_fields_check, "--struct-fields-check"),
+        (strict_types, "--strict-types"),
+        (ub_shift_check, "--ub-shift-check"),
+        (unsigned_overflow_check, "--unsigned-overflow-check"),
+    )
+    for enabled, flag in enabled_flags:
+        if bool(enabled) and flag not in options:
+            options.append(flag)
+
+    normalized_stack_limit = _normalize_stack_limit(stack_limit)
+    has_stack_limit = any(
+        option == "--stack-limit" or option.startswith("--stack-limit=")
+        for option in options
+    )
+    if normalized_stack_limit is not None and not has_stack_limit:
+        options.extend(["--stack-limit", str(normalized_stack_limit)])
+    return options
 
 
 def _normalize_function_names(value: Any) -> List[str]:

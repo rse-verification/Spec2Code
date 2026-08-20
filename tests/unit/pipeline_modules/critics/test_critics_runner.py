@@ -145,6 +145,34 @@ def test_build_esbmc_uses_function_names_option():
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_build_esbmc_uses_check_and_stack_options():
+    critics = critics_runner.build_critics_from_names(
+        names=["esbmc"],
+        solvers=[],
+        critic_options={
+            "esbmc": {
+                "uninitialised_vars_check": True,
+                "struct_fields_check": True,
+                "strict_types": True,
+                "ub_shift_check": True,
+                "unsigned_overflow_check": True,
+                "stack_limit": 4096,
+            }
+        },
+    )
+
+    assert len(critics) == 1
+    assert isinstance(critics[0], ESBMCCritic)
+    assert critics[0].uninitialised_vars_check is True
+    assert critics[0].struct_fields_check is True
+    assert critics[0].strict_types is True
+    assert critics[0].ub_shift_check is True
+    assert critics[0].unsigned_overflow_check is True
+    assert critics[0].stack_limit == 4096
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_run_critics_on_artifacts_routes_default_to_raw():
     critic = _FakeCritic("compile", success=True, score=1.0)
     out = critics_runner.run_critics_on_artifacts(

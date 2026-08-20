@@ -133,6 +133,14 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
     cfg["critic_options"] = {
         "framac-wp": {"wp_timeout": 9, "rte": False},
         "cppcheck-misra": {"timeout": 120},
+        "esbmc": {
+            "uninitialised_vars_check": True,
+            "struct_fields_check": True,
+            "strict_types": True,
+            "ub_shift_check": True,
+            "unsigned_overflow_check": True,
+            "stack_limit": 4096,
+        },
     }
     write_config(config_path, [cfg])
 
@@ -150,6 +158,14 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
     assert item.critic_context["framac_wp_no_let"] is True
     assert item.critic_options["framac-wp"]["wp_timeout"] == 9
     assert captured["critic_options"]["cppcheck-misra"]["timeout"] == 120
+    assert captured["critic_options"]["esbmc"] == {
+        "uninitialised_vars_check": True,
+        "struct_fields_check": True,
+        "strict_types": True,
+        "ub_shift_check": True,
+        "unsigned_overflow_check": True,
+        "stack_limit": 4096,
+    }
 
 
 @pytest.mark.unit

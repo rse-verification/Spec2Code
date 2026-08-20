@@ -130,6 +130,98 @@ def test_esbmc_critic_uses_builder_defaults_when_context_has_no_options(tmp_path
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_esbmc_critic_adds_configured_checks_and_stack_limit(tmp_path, monkeypatch):
+    c_file = tmp_path / "main.c"
+    c_file.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    captured = {}
+
+    def _fake_run_command(cmd, timeout):
+        captured["cmd"] = cmd
+        return ("VERIFICATION SUCCESSFUL", "", True)
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic(
+        esbmc_options=["--unwind", "3"],
+        uninitialised_vars_check=True,
+        struct_fields_check=True,
+        strict_types=True,
+        ub_shift_check=True,
+        unsigned_overflow_check=True,
+        stack_limit=8192,
+    ).run(
+        {
+            "c_file_path": str(c_file),
+            "timeout": 60,
+            "context": {"entry_functions": ["main"]},
+        }
+    )
+
+    assert result["success"] is True
+    assert shlex.split(captured["cmd"]) == [
+        "esbmc",
+        str(c_file),
+        "--unwind",
+        "3",
+        "--uninitialised-vars-check",
+        "--struct-fields-check",
+        "--strict-types",
+        "--ub-shift-check",
+        "--unsigned-overflow-check",
+        "--stack-limit",
+        "8192",
+        "--function",
+        "main",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_context_can_override_configured_checks(tmp_path, monkeypatch):
+    c_file = tmp_path / "main.c"
+    c_file.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    captured = {}
+
+    def _fake_run_command(cmd, timeout):
+        captured["cmd"] = cmd
+        return ("VERIFICATION SUCCESSFUL", "", True)
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic(uninitialised_vars_check=True, stack_limit=64).run(
+        {
+            "c_file_path": str(c_file),
+            "timeout": 60,
+            "context": {
+                "entry_functions": ["main"],
+                "uninitialised_vars_check": False,
+                "strict_types": True,
+                "stack_limit": 128,
+            },
+        }
+    )
+
+    assert result["success"] is True
+    assert shlex.split(captured["cmd"]) == [
+        "esbmc",
+        str(c_file),
+        "--strict-types",
+        "--stack-limit",
+        "128",
+        "--function",
+        "main",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_stack_limit_must_be_an_integer():
+    with pytest.raises(ValueError, match="stack_limit must be an integer"):
+        ESBMCCritic(stack_limit="not-an-integer")
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_esbmc_critic_runs_and_reports_every_entry_function(tmp_path, monkeypatch):
     c_file = tmp_path / "module.c"
     c_file.write_text(
