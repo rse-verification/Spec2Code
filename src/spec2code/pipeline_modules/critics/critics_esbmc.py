@@ -18,10 +18,12 @@ class ESBMCCritic:
     Uses inp["c_file_path"].\n
     Optional via inp.get("context", {}):
       - include_dirs: List[str]         (default: [])
-      - inferred_main_function: str     (default: "main")
+      - entry_functions: List[str]      (default: [])
+      - function_names: List[str]|str   (default: [])
       - esbmc_options: List[str]|str    (default: [])
 
-    Note: If the entry function is not "main" and an interface file (.is) is provided, it can be inferred. Otherwise it needs to be provided as a critic option.
+    Each interface entry function is checked independently. An optional function_names
+    critic option overrides the interface entry-function list.
     """
     name = "esbmc"
 
@@ -29,10 +31,10 @@ class ESBMCCritic:
             self, 
             *, 
             esbmc_options: Sequence[str] | str | None = None,
-            main_function: str | None = None
+            function_names: Sequence[str] | str | None = None,
             ):
         self.esbmc_options = _normalize_esbmc_options(esbmc_options)
-        self.main_function = main_function
+        self.function_names = _normalize_function_names(function_names)
 
     def run(self, inp: CriticInput) -> CriticResult:
         c_file_path = inp["c_file_path"]
@@ -42,10 +44,12 @@ class ESBMCCritic:
         include_dirs: List[str] = list(ctx.get("include_dirs", []))
         esbmc_options = _normalize_esbmc_options(ctx.get("esbmc_options", self.esbmc_options))
 
-        # Use main function name from critic options first (self.main_function)
-        # If not specified, check interface-inferred main (inferred_main_function)
-        # Fall back on "main"
-        main_function = str(self.main_function or ctx.get("inferred_main_function", "main"))
+        configured_function_names = _normalize_function_names(
+            ctx.get("function_names", self.function_names)
+        )
+        function_names = configured_function_names or _normalize_function_names(
+            ctx.get("entry_functions")
+        )
 
         if not os.path.exists(c_file_path):
             msg = f"File does not exist: {c_file_path}"
@@ -64,15 +68,56 @@ class ESBMCCritic:
                 }],
                 "raw_output": msg,
             }
+
+        if not function_names:
+            msg = "No entry functions or function_names override were provided."
+            return {
+                "tool": self.name,
+                "success": False,
+                "score": 0.0,
+                "summary": "No functions to analyze with ESBMC.",
+                "metrics": {"message": msg},
+                "findings": [{
+                    "tool": self.name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": c_file_path},
+                    "rule": None,
+                }],
+                "raw_output": msg,
+            }
         
+        runs: List[CriticResult] = []
+        for function_name in function_names:
+            runs.append(self._run_entry_function(
+                c_file_path=c_file_path,
+                timeout=timeout,
+                include_dirs=include_dirs,
+                esbmc_options=esbmc_options,
+                entry_function=function_name,
+            ))
+
+        if len(runs) == 1:
+            return runs[0]
+        return _aggregate_esbmc_runs(function_names, runs)
+
+    def _run_entry_function(
+        self,
+        *,
+        c_file_path: str,
+        timeout: int,
+        include_dirs: List[str],
+        esbmc_options: List[str],
+        entry_function: str,
+    ) -> CriticResult:
         include_args: List[str] = ["-I " + i for i in include_dirs]
-        
+
         cmd_parts: List[str] = (
             ["esbmc"] +
             [c_file_path] +
             include_args +
             esbmc_options +
-            ["--function", main_function]
+            ["--function", entry_function]
         )
 
         cmd = " ".join(shlex.quote(p) for p in cmd_parts)
@@ -98,6 +143,7 @@ class ESBMCCritic:
                 "metrics": {
                     "message": msg,
                     "command": cmd,
+                    "entry_function": entry_function,
                     "timeout": timeout,
                     "process_real_s": timing.get("real"),
                     "process_user_s": timing.get("user"),
@@ -121,6 +167,7 @@ class ESBMCCritic:
 
         metrics = {
             "command": cmd,
+            "entry_function": entry_function,
             "timeout": timeout,
             "process_real_s": timing.get("real"),
             "process_user_s": timing.get("user"),
@@ -151,6 +198,90 @@ def _normalize_esbmc_options(value: Sequence[str] | str | None) -> List[str]:
         stripped = value.strip()
         return shlex.split(stripped) if stripped else []
     return [str(part) for part in value if str(part).strip()]
+
+
+def _normalize_function_names(value: Any) -> List[str]:
+    if isinstance(value, str):
+        values: Sequence[Any] = [value]
+    elif isinstance(value, Sequence):
+        values = value
+    else:
+        return []
+
+    function_names: List[str] = []
+    for item in values:
+        for part in str(item).split(","):
+            function_name = part.strip()
+            if function_name and function_name not in function_names:
+                function_names.append(function_name)
+    return function_names
+
+
+def _aggregate_esbmc_runs(
+    entry_functions: List[str],
+    runs: List[CriticResult],
+) -> CriticResult:
+    successful_runs = sum(1 for run in runs if run["success"])
+    success = successful_runs == len(runs)
+    findings: List[Dict[str, Any]] = []
+    run_reports: List[Dict[str, Any]] = []
+    raw_outputs: List[str] = []
+    commands: Dict[str, str] = {}
+    violations = 0
+
+    for entry_function, run in zip(entry_functions, runs):
+        run_metrics = dict(run.get("metrics", {}))
+        command = run_metrics.get("command")
+        if command:
+            commands[entry_function] = str(command)
+
+        run_violations = run_metrics.get("violations", 0)
+        if isinstance(run_violations, int):
+            violations += run_violations
+
+        tagged_findings: List[Dict[str, Any]] = []
+        for finding in run.get("findings", []):
+            tagged_finding = dict(finding)
+            tagged_finding["entry_function"] = entry_function
+            tagged_finding["message"] = f"[{entry_function}] {finding.get('message', '')}".rstrip()
+            tagged_findings.append(tagged_finding)
+            findings.append(tagged_finding)
+
+        raw_output = str(run.get("raw_output", ""))
+        raw_outputs.append(f"===== ESBMC entry function: {entry_function} =====\n{raw_output}".rstrip())
+        run_reports.append({
+            "entry_function": entry_function,
+            "success": bool(run["success"]),
+            "score": float(run.get("score", 0.0)),
+            "summary": str(run.get("summary", "")),
+            "metrics": run_metrics,
+            "findings": tagged_findings,
+            "raw_output": raw_output,
+        })
+
+    summaries = "; ".join(
+        f"{entry_function}: {run.get('summary', '')}"
+        for entry_function, run in zip(entry_functions, runs)
+    )
+
+    return {
+        "tool": ESBMCCritic.name,
+        "success": success,
+        "score": 1.0 if success else 0.0,
+        "summary": f"ESBMC entry-function results: {summaries}",
+        "metrics": {
+            "verification_status": "successful" if success else "failed",
+            "violations": violations,
+            "entry_functions": list(entry_functions),
+            "total_runs": len(runs),
+            "successful_runs": successful_runs,
+            "failed_runs": len(runs) - successful_runs,
+            "commands": commands,
+            "runs": run_reports,
+        },
+        "findings": findings,
+        "raw_output": "\n\n".join(raw_outputs),
+    }
 
 def _parse_esbmc_output(output: str) -> Dict[str, Any]:
     text = output or ""

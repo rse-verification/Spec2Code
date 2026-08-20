@@ -778,6 +778,14 @@ def test_build_critics_catalog_uses_detected_why3_solvers(monkeypatch):
     inline_calls_opt = next(o for o in framac.get("options", []) if o.get("key") == "inline-calls")
     assert inline_calls_opt.get("type") == "string"
 
+    esbmc = next(c for c in catalog if c.get("name") == "esbmc")
+    option_keys = [option.get("key") for option in esbmc.get("options", [])]
+    assert "function_names" in option_keys
+    assert "main_function" not in option_keys
+    function_names_opt = next(o for o in esbmc["options"] if o.get("key") == "function_names")
+    assert "optional" in function_names_opt["label"].lower()
+    assert "blank analyzes all interface entry functions" in function_names_opt["label"].lower()
+
 
 @pytest.mark.unit
 def test_infer_main_from_interface_text_prefers_entry_functions_block():

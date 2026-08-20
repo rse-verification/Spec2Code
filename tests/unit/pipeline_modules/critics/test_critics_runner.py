@@ -7,6 +7,7 @@ import pytest
 from spec2code.pipeline_modules.critics import critics_runner
 from spec2code.pipeline_modules.critics.critics_compile import CompileCritic
 from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic
+from spec2code.pipeline_modules.critics.critics_esbmc import ESBMCCritic
 from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
 from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
@@ -126,6 +127,20 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     assert valgrind.massif is True
     assert valgrind.heap_limit_bytes == 2048
     assert valgrind.stack_limit_bytes == 1024
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_build_esbmc_uses_function_names_option():
+    critics = critics_runner.build_critics_from_names(
+        names=["esbmc"],
+        solvers=[],
+        critic_options={"esbmc": {"function_names": ["Init", "Step"]}},
+    )
+
+    assert len(critics) == 1
+    assert isinstance(critics[0], ESBMCCritic)
+    assert critics[0].function_names == ["Init", "Step"]
 
 
 @pytest.mark.unit

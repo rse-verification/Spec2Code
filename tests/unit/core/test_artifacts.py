@@ -288,7 +288,14 @@ def test_process_llm_generated_code_passes_context_targets_configs_and_maps_veri
         generated_code="int main(void){return 0;}\n",
         generated_header="#pragma once\n",
         file_path=str(file_path),
-        interface_text="void ShutdownAlgorithm_10ms(void);",
+        interface_text=(
+            "Module ShutdownAlgorithm {\n"
+            "  entry_functions: {\n"
+            "    void ShutdownAlgorithm_Init(void),\n"
+            "    void ShutdownAlgorithm_10ms(void)\n"
+            "  }\n"
+            "}\n"
+        ),
         verification_header_template_path=str(tpl),
         debug=True,
         include_dirs=[str(tmp_path / "inc")],
@@ -310,13 +317,33 @@ def test_process_llm_generated_code_passes_context_targets_configs_and_maps_veri
     assert settings.critic_targets["framac-wp"] == "raw"
 
     ctx = captured["base_context"]
-    assert ctx["interface_text"].startswith("void ShutdownAlgorithm_10ms")
+    assert ctx["interface_text"].startswith("Module ShutdownAlgorithm")
+    assert ctx["inferred_main_function"] == "ShutdownAlgorithm_Init"
+    assert ctx["entry_functions"] == ["ShutdownAlgorithm_Init", "ShutdownAlgorithm_10ms"]
     # critic_context is merged after debug flag and can override
     assert ctx["debug"] is False
     assert ctx["x"] == 1
     assert "generated_header_path" in ctx
 
     assert captured["critic_configs"]["framac-wp"]["wp_timeout"] == 8
+
+
+@pytest.mark.unit
+def test_infer_entry_functions_from_interface_text_returns_all_unique_entries():
+    interface_text = """
+    Module Example {
+      entry_functions: {
+        void Init(void),
+        int Step(unsigned int elapsed_ms),
+        void Register(void (*callback)(int)),
+        void Init(void)
+      }
+      external_calls: { void NotAnEntry(void) }
+    }
+    """
+
+    assert artifacts._infer_entry_functions_from_interface_text(interface_text) == ["Init", "Step", "Register"]
+    assert artifacts._infer_main_from_interface_text(interface_text) == "Init"
 
 
 @pytest.mark.unit

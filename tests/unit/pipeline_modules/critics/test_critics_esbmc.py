@@ -17,7 +17,6 @@ def test_esbmc_critic_c_file_not_exist_failure(tmp_path):
             "c_file_path": "does/not/exist",
             "timeout": 60,
             "context": {
-                "inferred_main_function": "entry_point",
                 "esbmc_options": '--unwind 10 --floatbv --context-bound "2"',
             },
         }
@@ -46,7 +45,7 @@ def test_esbmc_critic_timout_failure(tmp_path, monkeypatch):
             "c_file_path": str(c_file),
             "timeout": 60,
             "context": {
-                "inferred_main_function": "entry_point",
+                "entry_functions": ["entry_point"],
                 "esbmc_options": '--unwind 10 --floatbv --context-bound "2"',
             },
         }
@@ -76,7 +75,7 @@ def test_esbmc_critic_adds_options_from_context(tmp_path, monkeypatch):
             "c_file_path": str(c_file),
             "timeout": 42,
             "context": {
-                "inferred_main_function": "entry_point",
+                "entry_functions": ["entry_point"],
                 "esbmc_options": '--unwind 10 --floatbv --context-bound "2"',
             },
         }
@@ -114,7 +113,7 @@ def test_esbmc_critic_uses_builder_defaults_when_context_has_no_options(tmp_path
         {
             "c_file_path": str(c_file),
             "timeout": 60,
-            "context": {},
+            "context": {"entry_functions": ["main"]},
         }
     )
 
@@ -127,3 +126,129 @@ def test_esbmc_critic_uses_builder_defaults_when_context_has_no_options(tmp_path
         "--function",
         "main",
     ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_critic_runs_and_reports_every_entry_function(tmp_path, monkeypatch):
+    c_file = tmp_path / "module.c"
+    c_file.write_text(
+        "void Init(void) {}\nvoid Step(void) {}\n",
+        encoding="utf-8",
+    )
+    commands = []
+
+    def _fake_run_command(cmd, timeout):
+        commands.append(cmd)
+        entry_function = shlex.split(cmd)[-1]
+        if entry_function == "Init":
+            return ("VERIFICATION SUCCESSFUL", "", True, 0)
+        return (
+            "Violated property:\n  file module.c line 2 function Step\n"
+            "VERIFICATION FAILED",
+            "",
+            True,
+            1,
+        )
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic().run(
+        {
+            "c_file_path": str(c_file),
+            "timeout": 60,
+            "context": {
+                "entry_functions": ["Init", "Step"],
+            },
+        }
+    )
+
+    assert [shlex.split(cmd)[-1] for cmd in commands] == ["Init", "Step"]
+    assert result["success"] is False
+    assert result["score"] == 0.0
+    assert result["metrics"]["entry_functions"] == ["Init", "Step"]
+    assert result["metrics"]["total_runs"] == 2
+    assert result["metrics"]["successful_runs"] == 1
+    assert result["metrics"]["failed_runs"] == 1
+    assert [run["entry_function"] for run in result["metrics"]["runs"]] == ["Init", "Step"]
+    assert [run["success"] for run in result["metrics"]["runs"]] == [True, False]
+    assert result["findings"][0]["entry_function"] == "Step"
+    assert result["findings"][0]["message"].startswith("[Step]")
+    assert "ESBMC entry function: Init" in result["raw_output"]
+    assert "ESBMC entry function: Step" in result["raw_output"]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_function_names_override_entry_functions(tmp_path, monkeypatch):
+    c_file = tmp_path / "module.c"
+    c_file.write_text(
+        "void Selected(void) {}\nvoid AlsoSelected(void) {}\n",
+        encoding="utf-8",
+    )
+    commands = []
+
+    def _fake_run_command(cmd, timeout):
+        commands.append(cmd)
+        return ("VERIFICATION SUCCESSFUL", "", True)
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic(function_names=["Selected", "AlsoSelected"]).run(
+        {
+            "c_file_path": str(c_file),
+            "timeout": 60,
+            "context": {"entry_functions": ["Init", "Step"]},
+        }
+    )
+
+    assert result["success"] is True
+    assert [shlex.split(command)[-1] for command in commands] == ["Selected", "AlsoSelected"]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_function_names_accepts_gui_comma_separated_value(tmp_path, monkeypatch):
+    c_file = tmp_path / "module.c"
+    c_file.write_text("void First(void) {}\nvoid Second(void) {}\n", encoding="utf-8")
+    commands = []
+
+    def _fake_run_command(cmd, timeout):
+        commands.append(cmd)
+        return ("VERIFICATION SUCCESSFUL", "", True)
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic(function_names="First, Second").run(
+        {
+            "c_file_path": str(c_file),
+            "timeout": 60,
+            "context": {"entry_functions": ["Ignored"]},
+        }
+    )
+
+    assert result["success"] is True
+    assert [shlex.split(command)[-1] for command in commands] == ["First", "Second"]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_does_not_use_inferred_main_function(tmp_path, monkeypatch):
+    c_file = tmp_path / "module.c"
+    c_file.write_text("void Inferred(void) {}\n", encoding="utf-8")
+
+    def _unexpected_run_command(cmd, timeout):
+        pytest.fail(f"ESBMC should not run without entry_functions: {cmd}")
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _unexpected_run_command)
+
+    result = ESBMCCritic().run(
+        {
+            "c_file_path": str(c_file),
+            "timeout": 60,
+            "context": {"inferred_main_function": "Inferred"},
+        }
+    )
+
+    assert result["success"] is False
+    assert result["summary"] == "No functions to analyze with ESBMC."

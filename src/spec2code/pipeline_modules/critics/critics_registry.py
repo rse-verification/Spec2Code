@@ -115,8 +115,10 @@ def _build_binary_size(opts: Dict[str, Any], _solvers: list, _timeout: int) -> C
     return BinarySizeCritic(binary_size_limit_bytes=limit)
 
 def _build_esbmc(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
-    main_function = opts.get("main_function", None)
-    return ESBMCCritic(esbmc_options=opts.get("esbmc_options"), main_function=main_function)
+    return ESBMCCritic(
+        esbmc_options=opts.get("esbmc_options"),
+        function_names=opts.get("function_names"),
+    )
 
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "compile": _build_compile,
@@ -279,9 +281,9 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "default": "",
             },
             {
-                "key": "main_function",
+                "key": "function_names",
                 "type": "string",
-                "label": "Main Function (optional)",
+                "label": "Function Names (comma-separated)",
                 "default": "",
             },
         ],

@@ -214,6 +214,10 @@ def process_llm_generated_code(
     if inferred_main_function:
         base_context["inferred_main_function"] = inferred_main_function
 
+    entry_functions = _infer_entry_functions_from_interface_text(interface_text)
+    if entry_functions:
+        base_context["entry_functions"] = entry_functions
+
     critics_out = run_critics_on_artifacts(
         critics=critics,
         raw_c_path=raw_c,
@@ -245,3 +249,34 @@ def _infer_main_from_interface_text(interface_text: str) -> Optional[str]:
     if m_fn:
         return m_fn.group(1)
     return None
+
+
+def _infer_entry_functions_from_interface_text(interface_text: str) -> List[str]:
+    txt = str(interface_text or "")
+    if not txt.strip():
+        return []
+
+    m = re.search(r"entry_functions\s*:\s*\{(?P<body>.*?)\}", txt, flags=re.IGNORECASE | re.DOTALL)
+    search_body = m.group("body") if m else txt
+    search_body = re.sub(r"/\*.*?\*/|//[^\r\n]*", " ", search_body, flags=re.DOTALL)
+
+    entry_functions: List[str] = []
+    parenthesis_depth = 0
+    cursor = 0
+    for match in re.finditer(r"\b([A-Za-z_][A-Za-z0-9_]*)\s*\(", search_body):
+        for char in search_body[cursor:match.start()]:
+            if char == "(":
+                parenthesis_depth += 1
+            elif char == ")" and parenthesis_depth:
+                parenthesis_depth -= 1
+
+        if parenthesis_depth == 0:
+            function_name = match.group(1)
+            if function_name not in entry_functions:
+                entry_functions.append(function_name)
+
+        # The match ends after its opening parenthesis, so account for it before
+        # examining the next possible function name.
+        parenthesis_depth += 1
+        cursor = match.end()
+    return entry_functions
