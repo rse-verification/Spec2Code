@@ -35,6 +35,7 @@ D) Do not invent headers or declarations.
 
 State/storage rules:
 - Keep temporary state function-local.
+- Prefer directly assigned scalar state over address-taken local variables and output-pointer helper functions
 - Add persistent/file-scope state only if explicitly required by requirements.
 - Ghost variables are specification-only; never appear in C code.
 
