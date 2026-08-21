@@ -165,16 +165,6 @@ def _find_header_by_name(headers_items: List[Dict[str, str]], filename: str) -> 
     return None
 
 
-def _extract_type_defs_concat(headers_items: List[Dict[str, str]]) -> str:
-    parts: List[str] = []
-    for item in headers_items:
-        fn = str(item.get("filename", "header.h"))
-        content = str(item.get("content", ""))
-        if content.strip():
-            parts.append(f"/* === BEGIN {fn} === */\n{content}\n/* === END {fn} === */\n")
-    return "\n".join(parts).strip()
-
-
 def _pick_types_header_filename(headers_items: List[Dict[str, str]]) -> str:
     fns = [str(it.get("filename", "")) for it in headers_items]
     if "defined_types.h" in fns:
@@ -188,15 +178,21 @@ def _pick_types_header_filename(headers_items: List[Dict[str, str]]) -> str:
 class PreparedCaseStudyInputs:
     input_natural_language_specification: str
     input_interface: str
-    input_type_definitions: str
 
     input_headers: List[Dict[str, str]]
-    input_headers_json: str
     input_types_header_filename: str
 
     headers_dir: str
-    module_state_header_filename: Optional[str]
-    module_state_header_content: Optional[str]
+
+    @property
+    def module_state_header_filename(self) -> Optional[str]:
+        header = _find_header_by_name(self.input_headers, "module_state_and_constants.h")
+        return str(header["filename"]) if header else None
+
+    @property
+    def module_state_header_content(self) -> Optional[str]:
+        header = _find_header_by_name(self.input_headers, "module_state_and_constants.h")
+        return str(header.get("content", "")) if header else None
 
 
 @dataclass(frozen=True)
@@ -347,22 +343,13 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
 
     # Headers: ONLY manifest ones; each must exist
     headers_items = _load_headers_from_manifest(headers_dir, headers_manifest)
-    headers_json = json.dumps(headers_items)
-
-    module_state_header = _find_header_by_name(headers_items, "module_state_and_constants.h")
-    module_state_header_filename = module_state_header["filename"] if module_state_header else None
-    module_state_header_content = module_state_header.get("content") if module_state_header else None
 
     prepared_inputs = PreparedCaseStudyInputs(
         input_natural_language_specification=_read_text_file(natural_spec_path),
         input_interface=_read_text_file(interface_path),
-        input_type_definitions=_extract_type_defs_concat(headers_items),
         input_headers=headers_items,
-        input_headers_json=headers_json,
         input_types_header_filename=_pick_types_header_filename(headers_items),
         headers_dir=headers_dir,
-        module_state_header_filename=module_state_header_filename,
-        module_state_header_content=module_state_header_content,
     )
 
     if not prepared_inputs.input_natural_language_specification.strip():
@@ -371,11 +358,10 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         raise ValueError(f"Config error: interface file is empty: {interface_path}")
 
     # Build prompt inputs dict for format_prompt
-    prompt_inputs: Dict[str, str] = {
+    prompt_inputs: Dict[str, Any] = {
         "input_natural_language_specification": prepared_inputs.input_natural_language_specification,
         "input_interface": prepared_inputs.input_interface,
-        "input_type_definitions": prepared_inputs.input_type_definitions,
-        "input_headers_json": prepared_inputs.input_headers_json,
+        "input_headers": prepared_inputs.input_headers,
         "input_types_header_filename": prepared_inputs.input_types_header_filename,
     }
     filled_prompt = format_prompt(selected_prompt_template, prompt_inputs)

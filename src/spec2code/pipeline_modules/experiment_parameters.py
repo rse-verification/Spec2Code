@@ -84,13 +84,13 @@ def initialize_llms(names: Optional[List[str]] = None) -> Dict[str, object]:
 # Headers loading (multiple headers)
 # ----------------------------
 
-def load_input_headers(headers_dir: str) -> str:
+def load_input_headers(headers_dir: str) -> List[Dict[str, str]]:
     """
-    Returns a JSON string of:
+    Returns:
       [{"filename": "...", "provides": "...", "content": "..."}, ...]
     """
     if not headers_dir or not os.path.isdir(headers_dir):
-        return "[]"
+        return []
 
     items: List[Dict[str, str]] = []
     for fn in sorted(list_files(headers_dir)):
@@ -103,7 +103,7 @@ def load_input_headers(headers_dir: str) -> str:
             "provides": "",  # fill later if you want (manual or LLM-generated)
             "content": content,
         })
-    return json.dumps(items)
+    return items
 
 
 def _find_defined_types_filename(headers_dir: str) -> str:
@@ -120,35 +120,11 @@ def _find_defined_types_filename(headers_dir: str) -> str:
     return headers[0] if headers else "defined_types.h"
 
 
-def _extract_type_defs_from_headers_json(headers_json: str) -> str:
-    """
-    Produces a single string with ALL header contents concatenated, so you can
-    keep using the existing {{input_type_definitions}} placeholder.
-    """
-    try:
-        arr = json.loads(headers_json)
-        if not isinstance(arr, list):
-            return ""
-    except Exception:
-        return ""
-
-    parts: List[str] = []
-    for item in arr:
-        if not isinstance(item, dict):
-            continue
-        fn = str(item.get("filename", "header.h"))
-        content = str(item.get("content", ""))
-        if not content.strip():
-            continue
-        parts.append(f"/* === BEGIN {fn} === */\n{content}\n/* === END {fn} === */\n")
-    return "\n".join(parts).strip()
-
-
 # ----------------------------
 # Case study inputs
 # ----------------------------
 
-def get_case_study_inputs(case_study: str) -> Dict[str, str]:
+def get_case_study_inputs(case_study: str) -> Dict[str, Any]:
     if case_study not in VALID_CASE_STUDIES:
         raise ValueError(f"Error: {case_study} is not a valid case study.")
 
@@ -160,18 +136,14 @@ def get_case_study_inputs(case_study: str) -> Dict[str, str]:
     base_path = str(base_dir)
     headers_path = str(base_dir / "headers")
 
-    headers_json = load_input_headers(headers_path)
+    headers = load_input_headers(headers_path)
     types_include = _find_defined_types_filename(headers_path)
-    type_defs_concat = _extract_type_defs_from_headers_json(headers_json)
 
     return {
         "input_natural_language_specification": read_file(os.path.join(base_path, "nlspec.txt")) or "",
         "input_interface": read_file(os.path.join(base_path, "interface.txt")) or "",
-        # Backwards-compatible: keep old placeholder name, but now it contains ALL headers
-        "input_type_definitions": type_defs_concat,
         "input_signature": read_file(os.path.join(base_path, "signature.txt")) or "",
-        # New: give the LLM structured header files + a strong include hint
-        "input_headers_json": headers_json,
+        "input_headers": headers,
         "input_types_header_filename": types_include,
         # For pipeline compile/copy steps
         "headers_dir": headers_path,
@@ -182,7 +154,35 @@ def get_case_study_inputs(case_study: str) -> Dict[str, str]:
 # Prompt formatting
 # ----------------------------
 
-def format_prompt(template_type: str, case_study_inputs: Dict[str, str]) -> str:
+def _format_input_headers(value: Any) -> str:
+    if not isinstance(value, list):
+        raise ValueError("Prompt input 'input_headers' must be a list.")
+    if not value:
+        return "(no input headers)"
+
+    blocks: List[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("Each item in prompt input 'input_headers' must be an object.")
+
+        filename = str(item.get("filename", "header.h"))
+        provides = str(item.get("provides", "")) or "(not specified)"
+        content = str(item.get("content", ""))
+        if content and not content.endswith("\n"):
+            content += "\n"
+
+        blocks.append(
+            f"--- BEGIN INPUT HEADER: {filename} ---\n"
+            f"Provides: {provides}\n"
+            "Content:\n"
+            f"{content}"
+            f"--- END INPUT HEADER: {filename} ---"
+        )
+
+    return "\n\n".join(blocks)
+
+
+def format_prompt(template_type: str, case_study_inputs: Dict[str, Any]) -> str:
     templates = load_prompt_templates()
 
     if template_type not in templates:
@@ -195,7 +195,11 @@ def format_prompt(template_type: str, case_study_inputs: Dict[str, str]) -> str:
         )
 
     for key, value in case_study_inputs.items():
-        selected_template = selected_template.replace(f"{{{{{key}}}}}", value)
+        if key == "input_headers":
+            replacement = _format_input_headers(value)
+        else:
+            replacement = value if isinstance(value, str) else json.dumps(value)
+        selected_template = selected_template.replace(f"{{{{{key}}}}}", replacement)
 
     return selected_template
 

@@ -30,8 +30,7 @@ def _make_cfg(tmp_path: Path, *, n_programs: int = 1, with_module_state: bool = 
     csi = SimpleNamespace(
         input_natural_language_specification="nlspec",
         input_interface="void ShutdownAlgorithm_10ms(void);\n",
-        input_type_definitions="typedef int tI32;",
-        input_headers_json="[]",
+        input_headers=[],
         input_types_header_filename="types.h",
         headers_dir=str(headers_dir),
         module_state_header_filename="module_state_and_constants.h" if with_module_state else None,
@@ -134,6 +133,9 @@ def test_execute_pipeline_prepared_happy_path_writes_outputs_and_copies_files(tm
     with (Path(cfg.output_folder) / "output_pipeline.json").open("r", encoding="utf-8") as f:
         data = json.load(f)
     assert data["name"] == "cfg-name"
+    assert data["input_headers"] == []
+    assert "input_headers_json" not in data
+    assert "module_state_header_content" not in data
     assert "total_elapsed_time" in data
 
 

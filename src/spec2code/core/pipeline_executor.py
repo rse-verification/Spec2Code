@@ -278,7 +278,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
       - timeout_s, debug
       - case_study_inputs: PreparedCaseStudyInputs with:
           input_natural_language_specification, input_interface,
-          input_headers_json, input_type_definitions, input_types_header_filename, headers_dir
+          input_headers, input_types_header_filename, headers_dir
       - filled_prompt
     """
 
@@ -293,12 +293,10 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
     case_study_inputs: Dict[str, Any] = {
         "input_natural_language_specification": csi.input_natural_language_specification,
         "input_interface": csi.input_interface,
-        "input_type_definitions": csi.input_type_definitions,
-        "input_headers_json": csi.input_headers_json,
+        "input_headers": csi.input_headers,
         "input_types_header_filename": csi.input_types_header_filename,
         "headers_dir": csi.headers_dir,
         "module_state_header_filename": csi.module_state_header_filename,
-        "module_state_header_content": csi.module_state_header_content,
     }
 
     filled_prompt = getattr(cfg, "filled_prompt", None)

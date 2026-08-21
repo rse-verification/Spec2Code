@@ -14,11 +14,12 @@ Prompt formatting uses placeholders from prepared case-study/config inputs, such
 
 - `{{input_natural_language_specification}}`
 - `{{input_interface}}`
-- `{{input_type_definitions}}`
-- `{{input_headers_json}}`
+- `{{input_headers}}`
 - `{{input_types_header_filename}}`
 
-Keep templates backward compatible with existing placeholders when possible.
+The prepared `input_headers` collection is the canonical source of header content. 
+Each item contains its filename, a short description of what it provides, and its 
+content.
 
 ## Validation
 

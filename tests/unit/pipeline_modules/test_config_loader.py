@@ -36,6 +36,36 @@ def test_load_and_prepare_configs_success(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_active_prompt_uses_structured_headers_as_single_content_source(tmp_path, monkeypatch):
+    paths = write_shutdown_case_study(tmp_path)
+    config_path = tmp_path / "config.json"
+    cfg = build_config_dict(paths)
+    write_config(config_path, [cfg])
+
+    monkeypatch.setattr(config_loader, "build_critics_from_names", lambda **kwargs: ["critic:compile"])
+
+    item = config_loader.load_and_prepare_configs(str(config_path), solvers=[])[0]
+    prompt = item.filled_prompt
+
+    assert prompt.count("typedef bool tB;") == 1
+    assert prompt.count("g_rs_state[4]") == 1
+    assert prompt.count("--- BEGIN INPUT HEADER:") == 3
+    assert (
+        "--- BEGIN INPUT HEADER: safety_types.h ---\n"
+        "Provides: Types.\n"
+        "Content:\n"
+        "#ifndef SAFETY_TYPES_H\n"
+    ) in prompt
+    assert "\"content\":" not in prompt
+    assert "input_type_definitions" not in prompt
+    assert not hasattr(item.case_study_inputs, "input_type_definitions")
+    assert not hasattr(item.case_study_inputs, "input_headers_json")
+
+    headers = item.case_study_inputs.input_headers
+    assert [header["filename"] for header in headers] == list(cfg["headers_manifest"])
+
+
+@pytest.mark.unit
 def test_load_and_prepare_configs_missing_interface_file_raises(tmp_path, monkeypatch):
     paths = write_shutdown_case_study(tmp_path)
     config_path = tmp_path / "config.json"

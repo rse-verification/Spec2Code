@@ -4,8 +4,8 @@ Definitions:
 - input_interface: TODO: The interface specification + signature in one file
 
 - input_natural_language_specification: A human-readable description of the intended functional behavior, constraints, assumptions, and edge cases.
-- input_type_definitions: TODO: call this types.h and make this an NFR. should bein the interface declaration. you can assume that these types are always included. can be added to the rules in the overleaf
-    All required custom C type declarations (typedefs, structs, enums) that must be used exactly as provided.
+- input_headers: Structured project headers containing the required declarations and definitions.
+- input_types_header_filename: The primary types header within input_headers.
 
 Task:
 Generate a complete C module implementation that satisfies all provided specifications and is suitable for formal verification using Frama-C.
@@ -15,7 +15,7 @@ TODO: potentially remove or move
 1. Resolve conflicts using the following priority order:
    (1) input_signature
    (2) input_interface
-   (4) input_type_definitions
+   (4) input_headers
    (5) input_natural_language_specification
 TODO: should always be one function 
 2. Implement exactly the function(s) described by input_signature, matching signatures character-for-character.
@@ -34,13 +34,22 @@ TODO: revise this, no overlapping rules
 - Power-of-ten rules: mandatory compliance.
 - Custom project rules: mandatory compliance.
 
-Input payload:
-{
-  "input_natural_language_specification": "{{input_natural_language_specification}}",
-  "input_interface": "{{input_interface}}",
-  "input_type_definitions": "{{input_type_definitions}}",
-  "input_signature": "{{input_signature}}"
-}
+Runtime inputs:
+
+input_natural_language_specification:
+{{input_natural_language_specification}}
+
+input_interface:
+{{input_interface}}
+
+input_headers:
+{{input_headers}}
+
+input_types_header_filename:
+{{input_types_header_filename}}
+
+input_signature:
+{{input_signature}}
 
 Output:
 Return only the C module implementation.
