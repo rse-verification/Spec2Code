@@ -12,7 +12,7 @@ from spec2code.pipeline_modules.subprocess_creator import run_command
 class ESBMCCritic:
     """
     ESBMC Critic
-    
+
     Runs ESBMC on the input C file and reports verification failures,
     including violated properties and associated counterexamples when present.
 
@@ -117,7 +117,7 @@ class ESBMCCritic:
                 }],
                 "raw_output": msg,
             }
-        
+
         runs: List[CriticResult] = []
         for function_name in function_names:
             runs.append(self._run_entry_function(
@@ -141,7 +141,11 @@ class ESBMCCritic:
         esbmc_options: List[str],
         entry_function: str,
     ) -> CriticResult:
-        include_args: List[str] = ["-I " + i for i in include_dirs]
+        include_args: List[str] = [
+            arg
+            for include_dir in include_dirs
+            for arg in ("-I", include_dir)
+        ]
 
         cmd_parts: List[str] = (
             ["esbmc"] +
@@ -215,8 +219,8 @@ class ESBMCCritic:
             "findings": findings,
             "raw_output": raw.strip(),
         }
-    
-    
+
+
 # -----------------------
 # helpers
 # -----------------------
@@ -381,7 +385,7 @@ def _parse_esbmc_output(output: str) -> Dict[str, Any]:
                 "rule": None,
             }],
         }
-    
+
     if "parsing error" in lower:
         return {
             "success": False,
@@ -395,7 +399,7 @@ def _parse_esbmc_output(output: str) -> Dict[str, Any]:
                 "rule": None,
             }],
         }
-    
+
     if "verification successful" in lower:
         metrics["verification_status"] = "successful"
         return {
@@ -405,7 +409,7 @@ def _parse_esbmc_output(output: str) -> Dict[str, Any]:
             "findings": [],
         }
 
-    
+
 
     violated = _extract_violation_findings(text)
     if "verification failed" in lower or violated:
@@ -419,7 +423,7 @@ def _parse_esbmc_output(output: str) -> Dict[str, Any]:
             "location": None,
             "rule": None,
         }]
-        
+
         return {
             "success": False,
             "summary": "ESBMC verification failed.",
@@ -441,8 +445,8 @@ def _parse_esbmc_output(output: str) -> Dict[str, Any]:
                 "rule": None,
             }],
         }
-    
-    
+
+
 
     error_line = _first_error_line(text)
     if error_line:

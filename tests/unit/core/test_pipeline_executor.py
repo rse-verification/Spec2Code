@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from spec2code.core import pipeline_executor
+from spec2code.pipeline_modules.config_loader import PreparedConfig
 
 
 class _FakeLLM:
@@ -17,6 +18,11 @@ class _FakeLLM:
 class _FakeRuntime:
     def __init__(self, model_names):
         self.llms_available = {name: _FakeLLM() for name in model_names}
+
+
+@pytest.mark.unit
+def test_pipeline_executor_uses_package_prepared_config():
+    assert pipeline_executor.PreparedConfig is PreparedConfig
 
 
 def _make_cfg(tmp_path: Path, *, n_programs: int = 1, with_module_state: bool = False):

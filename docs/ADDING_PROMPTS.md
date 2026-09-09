@@ -17,8 +17,8 @@ Prompt formatting uses placeholders from prepared case-study/config inputs, such
 - `{{input_headers}}`
 - `{{input_types_header_filename}}`
 
-The prepared `input_headers` collection is the canonical source of header content. 
-Each item contains its filename, a short description of what it provides, and its 
+The prepared `input_headers` collection is the canonical source of header content.
+Each item contains its filename, a short description of what it provides, and its
 content.
 
 ## Validation

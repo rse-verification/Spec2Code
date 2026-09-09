@@ -13,7 +13,7 @@ from spec2code.core.llm_output_parser import extract_llm_response_info
 from spec2code.core.spec_injection import _inject_module_state_constants
 from spec2code.pipeline_modules.filesystem_io import copy_files, export_json, write_file
 from spec2code.pipeline_modules.runtime import Runtime
-from src.spec2code.pipeline_modules.config_loader import PreparedConfig
+from spec2code.pipeline_modules.config_loader import PreparedConfig
 
 
 def _now_stamp() -> str:
@@ -209,7 +209,7 @@ def _build_repair_prompt(
                 continue
 
             c_entry.update({k: value})
-        
+
         critic_diagnostics.append(c_entry)
 
     diagnostic_payload["critics_results"] = critic_diagnostics
@@ -239,7 +239,7 @@ def _build_repair_prompt(
             "```",
             "",
         ])
-    
+
     repair_prompt.extend([
         "===== Failed Verification =====",
         "",
@@ -415,7 +415,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
                     temperature=cfg.temperature,
                 )
 
-                
+
 
                 entry = {}
                 entry.update(extract_llm_response_info(output_llm))
@@ -477,7 +477,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
 
                 export_json(os.path.join(attempt_dir, "output.json"), entry)
                 write_file(os.path.join(attempt_dir, "output.txt"), _render_critic_timing_report(entry))
-                
+
                 if stop:
                     break
 
@@ -486,7 +486,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
                     attempt_entry=entry,
                 )
 
-            
+
             # Write final output statistics
             elapsed_program = time.perf_counter() - start_time_program
             program_times.append(elapsed_program)

@@ -278,3 +278,26 @@ def test_run_critics_on_artifacts_applies_per_critic_timeout_override():
     )
 
     assert critic.calls[0]["timeout"] == 123
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_failure_skips_valgrind_but_runs_source_critics(tmp_path):
+    compile_critic = _FakeCritic("compile", success=False, score=0.0)
+    valgrind = _FakeCritic("valgrind", success=True, score=1.0)
+    source_critic = _FakeCritic("cppcheck-misra", success=True, score=1.0)
+    compiled = tmp_path / "stale.out"
+    compiled.write_text("stale", encoding="utf-8")
+
+    out = critics_runner.run_critics_on_artifacts(
+        critics=[valgrind, source_critic, compile_critic],
+        raw_c_path="raw.c",
+        compiled_output_path=str(compiled),
+    )
+
+    assert compile_critic.calls
+    assert valgrind.calls == []
+    assert source_critic.calls
+    valgrind_result = next(r for r in out["critics_results"] if r["tool"] == "valgrind")
+    assert valgrind_result["success"] is False
+    assert valgrind_result["summary"] == "Critic dependency failed."

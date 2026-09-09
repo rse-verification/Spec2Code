@@ -34,7 +34,7 @@ def test_binary_size_missing_c_file_returns_failure(tmp_path):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_compile_returns_timeout_failure(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
 
     monkeypatch.setattr(
@@ -45,7 +45,7 @@ def test_binary_size_compile_returns_timeout_failure(tmp_path, monkeypatch):
 
     critic = critics_binary_size.BinarySizeCritic(1024)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5
              }
 
@@ -60,7 +60,7 @@ def test_binary_size_compile_returns_timeout_failure(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_no_object_file_failure(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
 
     monkeypatch.setattr(
@@ -71,7 +71,7 @@ def test_binary_size_no_object_file_failure(tmp_path, monkeypatch):
 
     critic = critics_binary_size.BinarySizeCritic(1024)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5
              }
 
@@ -85,7 +85,7 @@ def test_binary_size_no_object_file_failure(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_no_size_output_failure(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
 
     def fake_run_command(cmd, timeout, cwd):
@@ -101,7 +101,7 @@ def test_binary_size_no_size_output_failure(tmp_path, monkeypatch):
 
     critic = critics_binary_size.BinarySizeCritic(1024)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5
              }
 
@@ -115,7 +115,7 @@ def test_binary_size_no_size_output_failure(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_with_object_file_passes(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
 
     def fake_run_command(cmd, timeout, cwd):
@@ -140,7 +140,7 @@ def test_binary_size_with_object_file_passes(tmp_path, monkeypatch):
 
     critic = critics_binary_size.BinarySizeCritic(1024)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5
              }
 
@@ -155,7 +155,7 @@ def test_binary_size_with_object_file_passes(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_compile_nonzero_ignores_stale_object_file(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
     stale_object = _write_object_file(tmp_path)
 
@@ -177,7 +177,7 @@ def test_binary_size_compile_nonzero_ignores_stale_object_file(tmp_path, monkeyp
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_size_command_nonzero_returns_failure(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
 
     def fake_run_command(cmd, timeout, cwd):
@@ -204,7 +204,7 @@ def test_binary_size_size_command_nonzero_returns_failure(tmp_path, monkeypatch)
 @pytest.mark.unit
 @pytest.mark.critics
 def test_binary_size_over_limit_returns_failure(tmp_path, monkeypatch):
-    
+
     c_file = _write_c_file(tmp_path)
 
     def fake_run_command(cmd, timeout, cwd):

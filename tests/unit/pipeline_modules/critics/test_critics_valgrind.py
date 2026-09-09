@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from pathlib import Path
 
 import pytest
@@ -119,7 +120,7 @@ def test_valgrind_run_missing_executable_returns_failure(tmp_path):
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "context": {
                  "compiled_output_path": "does/not/exist"
                 }
@@ -135,7 +136,7 @@ def test_valgrind_run_missing_executable_returns_failure(tmp_path):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_massif_run_timeout_returns_timeout_failure(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -147,7 +148,7 @@ def test_valgrind_massif_run_timeout_returns_timeout_failure(tmp_path, monkeypat
 
     critic = critics_valgrind.ValgrindCritic(massif=True, memcheck=False)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -162,10 +163,36 @@ def test_valgrind_massif_run_timeout_returns_timeout_failure(tmp_path, monkeypat
     assert result["metrics"]["timeout"] == 5
     assert result["findings"][0]["message"] == "Valgrind massif timeout"
 
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_valgrind_massif_timeout_removes_stale_report(tmp_path, monkeypatch):
+    exe = _write_executable(tmp_path)
+    c_file = _write_c_file(tmp_path)
+    massif_report = _write_massif_limit_report(tmp_path)
+
+    def _fake_run_command(cmd, timeout, cwd):
+        assert not massif_report.exists()
+        massif_report.write_text(massif_report_with_usage, encoding="utf-8")
+        return "", "valgrind timed out", False, 1
+
+    monkeypatch.setattr(critics_valgrind, "run_command", _fake_run_command)
+
+    critic = critics_valgrind.ValgrindCritic(massif=True, memcheck=False)
+    result = critic.run({
+        "c_file_path": str(c_file),
+        "timeout": 5,
+        "context": {"compiled_output_path": str(exe)},
+    })
+
+    assert result["success"] is False
+    assert "peak_heap_bytes" not in result["metrics"]
+    assert not massif_report.exists()
+
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_memcheck_run_timeout_returns_timeout_failure(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -177,7 +204,7 @@ def test_valgrind_memcheck_run_timeout_returns_timeout_failure(tmp_path, monkeyp
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -195,7 +222,7 @@ def test_valgrind_memcheck_run_timeout_returns_timeout_failure(tmp_path, monkeyp
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_memcheck_no_output_failure(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -207,7 +234,7 @@ def test_valgrind_memcheck_no_output_failure(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -224,7 +251,7 @@ def test_valgrind_memcheck_no_output_failure(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_massif_no_output_failure(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -236,7 +263,7 @@ def test_valgrind_massif_no_output_failure(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=True, memcheck=False)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -253,7 +280,7 @@ def test_valgrind_massif_no_output_failure(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_no_tools_failure(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -265,7 +292,7 @@ def test_valgrind_no_tools_failure(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=False)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -282,7 +309,7 @@ def test_valgrind_no_tools_failure(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_memcheck_success(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -298,7 +325,7 @@ def test_valgrind_memcheck_success(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -315,13 +342,13 @@ def test_valgrind_memcheck_success(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_passes_executable_args_to_executable(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
     def _fake_run_command(cmd, timeout, cwd):
         assert "--tool=memcheck" in cmd
-        assert f"{exe} --case smoke --name 'phase one'" in cmd
+        assert shlex.split(cmd)[-5:] == [str(exe), "--case", "smoke", "--name", "phase one"]
         return memcheck_output_success, "", True, 0
 
     monkeypatch.setattr(
@@ -332,7 +359,7 @@ def test_valgrind_passes_executable_args_to_executable(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe),
@@ -349,7 +376,7 @@ def test_valgrind_passes_executable_args_to_executable(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_massif_success(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -367,7 +394,7 @@ def test_valgrind_massif_success(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=True, memcheck=False)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -383,7 +410,7 @@ def test_valgrind_massif_success(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_massif_reports_limits_within_bounds(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -405,7 +432,7 @@ def test_valgrind_massif_reports_limits_within_bounds(tmp_path, monkeypatch):
         stack_limit_bytes=8192,
     )
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -424,10 +451,54 @@ def test_valgrind_massif_reports_limits_within_bounds(tmp_path, monkeypatch):
     assert "Peak heap usage 1024 bytes is within limit 2048 bytes." in result["summary"]
     assert "Peak stack usage 4096 bytes is within limit 8192 bytes." in result["summary"]
 
+
+@pytest.mark.unit
+@pytest.mark.critics
+@pytest.mark.parametrize("limit", [0, -1])
+def test_analyze_massif_non_positive_limits_are_not_enforced(tmp_path, limit):
+    massif_report = _write_massif_limit_report(tmp_path)
+
+    result = critics_valgrind._analyze_massif(
+        str(massif_report),
+        heap_limit_bytes=limit,
+        stack_limit_bytes=limit,
+    )
+
+    assert result["success"] is True
+    assert result["metrics"]["heap_below_limit"] is None
+    assert result["metrics"]["stack_below_limit"] is None
+    assert not any(f.get("rule") in {"massif-heap-limit", "massif-stack-limit"} for f in result["findings"])
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_valgrind_massif_failure_does_not_parse_report_and_cleans_up(tmp_path, monkeypatch):
+    exe = _write_executable(tmp_path)
+    c_file = _write_c_file(tmp_path)
+    massif_report = tmp_path / "massif.out"
+
+    def _fake_run_command(cmd, timeout, cwd):
+        massif_report.write_text(massif_report_with_usage, encoding="utf-8")
+        return "", "valgrind failed", True, 1
+
+    monkeypatch.setattr(critics_valgrind, "run_command", _fake_run_command)
+
+    critic = critics_valgrind.ValgrindCritic(massif=True, memcheck=False)
+    result = critic.run({
+        "c_file_path": str(c_file),
+        "timeout": 5,
+        "context": {"compiled_output_path": str(exe)},
+    })
+
+    assert result["success"] is False
+    assert result["summary"] == "Massif returned with non-zero exit code."
+    assert "peak_heap_bytes" not in result["metrics"]
+    assert not massif_report.exists()
+
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_massif_fails_when_limit_exceeded(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -449,7 +520,7 @@ def test_valgrind_massif_fails_when_limit_exceeded(tmp_path, monkeypatch):
         stack_limit_bytes=4096,
     )
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)
@@ -468,7 +539,7 @@ def test_valgrind_massif_fails_when_limit_exceeded(tmp_path, monkeypatch):
 @pytest.mark.unit
 @pytest.mark.critics
 def test_valgrind_memcheck_error_reports(tmp_path, monkeypatch):
-    
+
     exe = _write_executable(tmp_path)
     c_file = _write_c_file(tmp_path)
 
@@ -484,7 +555,7 @@ def test_valgrind_memcheck_error_reports(tmp_path, monkeypatch):
 
     critic = critics_valgrind.ValgrindCritic(massif=False, memcheck=True)
 
-    input = {"c_file_path": str(c_file), 
+    input = {"c_file_path": str(c_file),
              "timeout": 5,
              "context": {
                  "compiled_output_path": str(exe)

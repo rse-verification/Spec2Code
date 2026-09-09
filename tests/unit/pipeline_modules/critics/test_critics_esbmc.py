@@ -98,6 +98,79 @@ def test_esbmc_critic_adds_options_from_context(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_esbmc_critic_passes_each_include_dir_as_an_option(tmp_path, monkeypatch):
+    c_file = tmp_path / "main.c"
+    c_file.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    include_dirs = [tmp_path / "first", tmp_path / "second"]
+    captured = {}
+
+    def _fake_run_command(cmd, timeout):
+        captured["cmd"] = cmd
+        return ("VERIFICATION SUCCESSFUL", "", True)
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic().run(
+        {
+            "c_file_path": str(c_file),
+            "context": {
+                "entry_functions": ["main"],
+                "include_dirs": [str(path) for path in include_dirs],
+            },
+        }
+    )
+
+    assert result["success"] is True
+    assert shlex.split(captured["cmd"]) == [
+        "esbmc",
+        str(c_file),
+        "-I",
+        str(include_dirs[0]),
+        "-I",
+        str(include_dirs[1]),
+        "--function",
+        "main",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_esbmc_critic_shell_quotes_include_dir_with_spaces(tmp_path, monkeypatch):
+    c_file = tmp_path / "main.c"
+    c_file.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    include_dir = tmp_path / "headers with spaces;and-shell-syntax"
+    captured = {}
+
+    def _fake_run_command(cmd, timeout):
+        captured["cmd"] = cmd
+        return ("VERIFICATION SUCCESSFUL", "", True)
+
+    monkeypatch.setattr(critics_esbmc, "run_command", _fake_run_command)
+
+    result = ESBMCCritic().run(
+        {
+            "c_file_path": str(c_file),
+            "context": {
+                "entry_functions": ["main"],
+                "include_dirs": [str(include_dir)],
+            },
+        }
+    )
+
+    assert result["success"] is True
+    assert shlex.split(captured["cmd"]) == [
+        "esbmc",
+        str(c_file),
+        "-I",
+        str(include_dir),
+        "--function",
+        "main",
+    ]
+    assert shlex.quote(str(include_dir)) in captured["cmd"]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_esbmc_critic_uses_builder_defaults_when_context_has_no_options(tmp_path, monkeypatch):
     c_file = tmp_path / "main.c"
     c_file.write_text("int main(void) { return 0; }\n", encoding="utf-8")

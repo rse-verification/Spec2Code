@@ -22,7 +22,7 @@ class BinarySizeCritic:
       - gcc_flags: List[str]        (default: ["-c"])
       - include_dirs: List[str]     (default: [])
       - defines: List[str]          (default: [])
- 
+
     """
 
     name = "binary-size"
@@ -48,7 +48,7 @@ class BinarySizeCritic:
                     os.remove(object_file_output_path)
             except OSError:
                 pass
-        
+
         # Use for all returns to make sure object file is deleted
         def _finish(result: CriticResult) -> CriticResult:
             _delete_object_file()
@@ -99,10 +99,10 @@ class BinarySizeCritic:
                 }],
                 "raw_output": msg,
             })
-        
+
         inc_args = [f"-I{d}" for d in include_dirs]
         def_args = [f"-D{d}" for d in defines]
-        
+
         cmd_parts: List[str] = (
             ["gcc"]
             + gcc_flags
@@ -178,7 +178,7 @@ class BinarySizeCritic:
                 }],
                 "raw_output": raw_output_compile.strip() or msg,
             })
-        
+
         if not os.path.exists(object_file_output_path):
             msg = "Failed to compile object file."
             return _finish({
@@ -203,7 +203,7 @@ class BinarySizeCritic:
                 }],
                 "raw_output": raw_output_compile.strip() or msg,
             })
-        
+
         cmd_parts: List[str] = (
             ["size"]
             + [object_file_output_path]
@@ -275,7 +275,7 @@ class BinarySizeCritic:
                 }],
                 "raw_output": raw_output.strip() or msg,
             })
-        
+
         size_bytes = self._parse_size(stdout_str)
 
         if size_bytes is None:
@@ -344,5 +344,5 @@ class BinarySizeCritic:
             if len(parts) >= 4 and parts[0].isdigit() and parts[3].isdigit():
                 size_bytes = int(parts[3])
                 break
-        
+
         return size_bytes

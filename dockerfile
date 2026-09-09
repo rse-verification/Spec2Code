@@ -86,6 +86,30 @@ RUN set -eux; \
 RUN apt-get update && \
     apt-get install -y --no-install-recommends valgrind
 
+# --- ESBMC ---
+ARG TARGETARCH
+ARG ESBMC_VERSION=7.6
+RUN set -eux; \
+    case "$TARGETARCH" in \
+      amd64) \
+        esbmc_asset="release-ubuntu-latest.zip"; \
+        esbmc_sha256="0bd2494415b13725018ca6e506d28366d877acb640c195907f52b0b1dc2c6c4b" \
+        ;; \
+      arm64) \
+        esbmc_asset="release-ARM64.zip"; \
+        esbmc_sha256="7567cce6f8a42c26e04f13a4a19fe91ee3e08e1e81bbe7f0de491ffcef648cd5" \
+        ;; \
+      *) echo "Unsupported architecture for ESBMC: $TARGETARCH"; exit 1 ;; \
+    esac; \
+    wget -O /tmp/esbmc.zip "https://github.com/esbmc/esbmc/releases/download/v${ESBMC_VERSION}/${esbmc_asset}"; \
+    echo "${esbmc_sha256}  /tmp/esbmc.zip" | sha256sum -c -; \
+    mkdir -p /opt/esbmc; \
+    unzip -q /tmp/esbmc.zip -d /opt/esbmc; \
+    chmod 0755 /opt/esbmc/bin/esbmc; \
+    ln -s /opt/esbmc/bin/esbmc /usr/local/bin/esbmc; \
+    rm /tmp/esbmc.zip; \
+    esbmc --version
+
 # --- Python venv (inside image) ---
 RUN python3 -m venv "$VENV_DIR" \
  && "$VENV_DIR/bin/pip" install --upgrade pip setuptools wheel

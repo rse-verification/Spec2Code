@@ -36,7 +36,7 @@ def _extract_time_metrics(stderr_text: str) -> tuple[str, dict[str, float]]:
 def run_command(command: str, timeout: int, cwd: str | None = None) -> tuple:
     """
     Runs a shell command with a specified timeout.
-    
+
     Args:
         command (str): The command to execute.
         timeout (int): The maximum time in seconds the command can run.

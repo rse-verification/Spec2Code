@@ -117,73 +117,80 @@ class ValgrindCritic:
             massif_cmd = " ".join(cmd_parts).strip()
             commands["massif"] = massif_cmd
 
-            res = run_command(massif_cmd, timeout, cwd=workdir)
-
-            timing: Dict[str, float] = {}
-
-            if isinstance(res, tuple) and len(res) >= 5:
-                stdout_str, stderr_str, completed, _exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
-            elif isinstance(res, tuple) and len(res) == 4:
-                stdout_str, stderr_str, completed, _exit_code = res
-            else:
-                stdout_str, stderr_str, completed = res  # type: ignore[misc]
-
-            raw_output = (stdout_str or "") + "\n" + (stderr_str or "")
-            raw_outputs.append(raw_output)
-            for key, value in timing.items():
-                process_timing[f"massif_{key}_s"] = value
-
-            if not completed:
-                msg = "Valgrind massif timeout"
-                return {
-                    "tool": self.name,
-                    "success": False,
-                    "score": 0.0,
-                    "summary": "Valgrind analysis failed.",
-                    "metrics": {
-                        "message": msg,
-                        "command": massif_cmd,
-                        "timeout": timeout,
-                        "process_real_s": timing.get("real"),
-                        "process_user_s": timing.get("user"),
-                        "process_sys_s": timing.get("sys"),
-                    },
-                    "findings": [{
-                        "tool": self.name,
-                        "severity": "error",
-                        "message": msg,
-                        "location": {"file": compiled_output_path},
-                        "rule": None,
-                    }],
-                    "raw_output": raw_output.strip() or msg,
-                }
-            
-            exit_codes["massif"] = _exit_code
-            massif_analysis = _analyze_massif(
-                massif_path,
-                heap_limit_bytes=self.heap_limit_bytes,
-                stack_limit_bytes=self.stack_limit_bytes,
-            )
-
-            success = success and massif_analysis["success"] and (not _exit_code)
-            summaries.append(massif_analysis["summary"])
-            metrics.update(massif_analysis["metrics"])
-            findings.extend(massif_analysis["findings"])
-
-            if _exit_code:
-                msg = "Massif returned with non-zero exit code"
-                findings.append({
-                        "tool": self.name,
-                        "severity": "error",
-                        "message": msg,
-                        "location": {"file": compiled_output_path},
-                    })
-
             try:
                 if os.path.exists(massif_path):
                     os.remove(massif_path)
-            except OSError:
-                pass
+
+                res = run_command(massif_cmd, timeout, cwd=workdir)
+
+                timing: Dict[str, float] = {}
+
+                if isinstance(res, tuple) and len(res) >= 5:
+                    stdout_str, stderr_str, completed, _exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
+                elif isinstance(res, tuple) and len(res) == 4:
+                    stdout_str, stderr_str, completed, _exit_code = res
+                else:
+                    stdout_str, stderr_str, completed = res  # type: ignore[misc]
+                    _exit_code = None
+
+                raw_output = (stdout_str or "") + "\n" + (stderr_str or "")
+                raw_outputs.append(raw_output)
+                for key, value in timing.items():
+                    process_timing[f"massif_{key}_s"] = value
+
+                if not completed:
+                    msg = "Valgrind massif timeout"
+                    return {
+                        "tool": self.name,
+                        "success": False,
+                        "score": 0.0,
+                        "summary": "Valgrind analysis failed.",
+                        "metrics": {
+                            "message": msg,
+                            "command": massif_cmd,
+                            "timeout": timeout,
+                            "process_real_s": timing.get("real"),
+                            "process_user_s": timing.get("user"),
+                            "process_sys_s": timing.get("sys"),
+                        },
+                        "findings": [{
+                            "tool": self.name,
+                            "severity": "error",
+                            "message": msg,
+                            "location": {"file": compiled_output_path},
+                            "rule": None,
+                        }],
+                        "raw_output": raw_output.strip() or msg,
+                    }
+
+                exit_codes["massif"] = _exit_code
+                if _exit_code:
+                    msg = "Massif returned with non-zero exit code"
+                    success = False
+                    summaries.append(msg + ".")
+                    findings.append({
+                            "tool": self.name,
+                            "severity": "error",
+                            "message": msg,
+                            "location": {"file": compiled_output_path},
+                        })
+                else:
+                    massif_analysis = _analyze_massif(
+                        massif_path,
+                        heap_limit_bytes=self.heap_limit_bytes,
+                        stack_limit_bytes=self.stack_limit_bytes,
+                    )
+
+                    success = success and massif_analysis["success"]
+                    summaries.append(massif_analysis["summary"])
+                    metrics.update(massif_analysis["metrics"])
+                    findings.extend(massif_analysis["findings"])
+            finally:
+                try:
+                    if os.path.exists(massif_path):
+                        os.remove(massif_path)
+                except OSError:
+                    pass
 
         # ----- Run memcheck -----
         if self.memcheck:
@@ -237,7 +244,7 @@ class ValgrindCritic:
                     }],
                     "raw_output": raw_output.strip() or msg,
                 }
-            
+
             exit_codes["memcheck"] = _exit_code
             memcheck_analysis = _analyze_memcheck(raw_output, compiled_output_path)
 
@@ -376,8 +383,8 @@ def _analyze_massif(
     )
     heap_limit_bytes = max(0, int(heap_limit_bytes))
     stack_limit_bytes = max(0, int(stack_limit_bytes))
-    heap_below_limit = peak_heap <= heap_limit_bytes if heap_limit_bytes >= 0 else None
-    stack_below_limit = peak_stack <= stack_limit_bytes if stack_limit_bytes >= 0 else None
+    heap_below_limit = peak_heap <= heap_limit_bytes if heap_limit_bytes > 0 else None
+    stack_below_limit = peak_stack <= stack_limit_bytes if stack_limit_bytes > 0 else None
 
     findings: List[Finding] = [{
         "tool": "valgrind",
@@ -423,7 +430,7 @@ def _analyze_massif(
                 "location": {"file": report_path},
                 "rule": "massif-stack-limit",
             })
-        
+
         limit_summaries.append(message)
 
     success = heap_below_limit is not False and stack_below_limit is not False

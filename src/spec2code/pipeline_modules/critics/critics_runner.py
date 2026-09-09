@@ -102,9 +102,10 @@ def run_critics_on_artifacts(
     results: List[CriticResult] = []
     overall_success = True
     overall_score = 1.0
+    compile_succeeded: Optional[bool] = None
 
     critics_list = list(critics)
-    
+
     # Make sure compile always runs first because of dependencies
     critics_list.sort(key=lambda c: 0 if getattr(c, "name", "") == "compile" else 1)
 
@@ -140,16 +141,46 @@ def run_critics_on_artifacts(
                 results.append(r)
                 overall_success = False
                 overall_score = 0.0
+                if name == "compile":
+                    compile_succeeded = False
                 continue
             c_path = spec_c_path
         else:
-            c_path = raw_c_path        
+            c_path = raw_c_path
 
         inp: CriticInput = {
             "c_file_path": c_path,
             "timeout": critic_timeout,
             "context": {**dict(ctx_base), **n_cfg},
         }
+
+        if name == "valgrind" and compile_succeeded is False:
+            msg = "Compilation failed; compiled executable is unavailable."
+            r = {
+                "tool": name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Critic dependency failed.",
+                "metrics": {
+                    "message": msg,
+                    "compiled_output_path": compiled_output_path,
+                    "elapsed_time_s": 0.0,
+                },
+                "findings": [{
+                    "tool": name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": compiled_output_path},
+                    "rule": None,
+                }],
+                "raw_output": "",
+                "elapsed_time_s": 0.0,
+            }
+            results.append(r)
+            overall_success = False
+            overall_score = 0.0
+            print(f"[critics] {idx}/{total_critics} done: {name} fail (0s)")
+            continue
 
         t0 = time.perf_counter()
         r = critic.run(inp)
@@ -160,6 +191,8 @@ def run_critics_on_artifacts(
         r["elapsed_time_s"] = elapsed
 
         results.append(r)
+        if name == "compile":
+            compile_succeeded = bool(r["success"])
         overall_success = overall_success and bool(r["success"])
         overall_score = min(overall_score, float(r.get("score", 0.0)))
 

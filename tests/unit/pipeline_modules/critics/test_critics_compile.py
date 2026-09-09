@@ -54,7 +54,11 @@ def test_compile_run_success_no_warnings(tmp_path, monkeypatch):
     compiled.parent.mkdir(parents=True, exist_ok=True)
     compiled.write_text("obj", encoding="utf-8")
 
-    monkeypatch.setattr(critics_compile, "run_command", lambda cmd, timeout: ("", "", True))
+    def _fake_run_command(cmd, timeout):
+        compiled.write_text("new obj", encoding="utf-8")
+        return "", "", True
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
 
     critic = critics_compile.CompileCritic()
     result = critic.run(
@@ -69,6 +73,46 @@ def test_compile_run_success_no_warnings(tmp_path, monkeypatch):
     assert result["summary"] == "Compilation succeeded."
     assert result["findings"] == []
     assert compiled.exists()
+    assert compiled.read_text(encoding="utf-8") == "new obj"
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_run_nonzero_exit_without_diagnostics_returns_failure(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    monkeypatch.setattr(
+        critics_compile,
+        "run_command",
+        lambda cmd, timeout: ("", "compiler terminated", True, 2),
+    )
+
+    result = critics_compile.CompileCritic().run({"c_file_path": str(c_file)})
+
+    assert result["success"] is False
+    assert result["metrics"]["exit_code"] == 2
+    assert result["findings"][0]["message"] == "compiler terminated"
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_run_removes_stale_output_before_failed_compilation(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    compiled = tmp_path / "main.o"
+    compiled.write_text("stale", encoding="utf-8")
+
+    def _fake_run_command(cmd, timeout):
+        assert not compiled.exists()
+        return "", "failed", True, 1
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
+
+    result = critics_compile.CompileCritic().run({
+        "c_file_path": str(c_file),
+        "context": {"compiled_output_path": str(compiled)},
+    })
+
+    assert result["success"] is False
+    assert not compiled.exists()
 
 
 @pytest.mark.unit
@@ -153,7 +197,11 @@ def test_compile_run_respects_remove_compiled_false(tmp_path, monkeypatch):
     compiled = tmp_path / "main.o"
     compiled.write_text("obj", encoding="utf-8")
 
-    monkeypatch.setattr(critics_compile, "run_command", lambda cmd, timeout: ("", "", True))
+    def _fake_run_command(cmd, timeout):
+        compiled.write_text("new obj", encoding="utf-8")
+        return "", "", True
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
 
     critic = critics_compile.CompileCritic()
     result = critic.run(

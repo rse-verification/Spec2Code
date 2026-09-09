@@ -36,6 +36,28 @@ class CompileCritic:
 
         compiled_output_path = str(ctx.get("compiled_output_path", f"{c_file_path}.out"))
 
+        try:
+            os.remove(compiled_output_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            msg = f"Failed to remove stale compiled output: {exc}"
+            return {
+                "tool": self.name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Compilation failed.",
+                "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                "findings": [{
+                    "tool": self.name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": compiled_output_path},
+                    "rule": None,
+                }],
+                "raw_output": msg,
+            }
+
         gcc = str(ctx.get("gcc", "gcc"))
 
         gcc_flags: List[str] = list(ctx.get("gcc_flags", []))
@@ -116,7 +138,7 @@ class CompileCritic:
             source_alias_path = os.path.join(os.path.dirname(c_file_path) or ".", normalized_source_name)
             if os.path.abspath(source_alias_path) != os.path.abspath(c_file_path):
                 # Dont create new file if alias has same path as source file
-                if not os.path.exists(source_alias_path):   
+                if not os.path.exists(source_alias_path):
                     os.makedirs(os.path.dirname(source_alias_path) or ".", exist_ok=True)
                     shutil.copy2(c_file_path, source_alias_path)
                     cleanup_paths.append(source_alias_path)
@@ -147,18 +169,20 @@ class CompileCritic:
             res = run_command(cmd, timeout)
         finally:
             _cleanup_paths(cleanup_paths)
-        
+
         timing: Dict[str, float] = {}
+        exit_code = None
         if isinstance(res, tuple) and len(res) >= 5:
-            stdout_str, stderr_str, completed, _exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
+            stdout_str, stderr_str, completed, exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
         elif isinstance(res, tuple) and len(res) == 4:
-            stdout_str, stderr_str, completed, _exit_code = res
+            stdout_str, stderr_str, completed, exit_code = res
         else:
             stdout_str, stderr_str, completed = res  # type: ignore[misc]
         raw = (stdout_str or "") + ("\n" if (stdout_str and stderr_str) else "") + (stderr_str or "")
         diagnostics = _extract_diagnostics(raw)
 
         if not completed:
+            _cleanup_paths([compiled_output_path])
             msg = "Compilation timeout"
             return {
                 "tool": self.name,
@@ -184,7 +208,7 @@ class CompileCritic:
                 "raw_output": raw.strip() or msg,
             }
 
-        has_error = bool(diagnostics["errors"])
+        has_error = bool(diagnostics["errors"]) or exit_code not in (0, None)
         has_warning = bool(diagnostics["warnings"])
 
         if not has_error and not has_warning:
@@ -228,6 +252,7 @@ class CompileCritic:
                 "raw_output": raw.strip(),
             }
 
+        _cleanup_paths([compiled_output_path])
         msg = ("\n".join(diagnostics["errors"]) or raw or "Compilation failed.").strip()
         error_findings: List[Finding] = [
             self._error_finding(line, c_file_path) for line in diagnostics["errors"]
@@ -248,6 +273,7 @@ class CompileCritic:
             "metrics": {
                 "command": cmd,
                 "compiled_output_path": compiled_output_path,
+                "exit_code": exit_code,
                 "timeout": timeout,
                 "process_real_s": timing.get("real"),
                 "process_user_s": timing.get("user"),
@@ -323,7 +349,7 @@ def _extract_diagnostics(raw: str) -> Dict[str, List[str]]:
         elif "error:" in lower or "fatal error" in lower or "undefined reference" in lower:
             #errors.append(s)
             current_error = raw_line
-    
+
     if current_warning:
         warnings.append(current_warning)
     if current_error:
