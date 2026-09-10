@@ -53,12 +53,12 @@ RUN opam init -y --disable-sandboxing \
  && opam update \
  && opam switch create ocaml5 ocaml-base-compiler.5.1.1
 
-# --- Install dune + Frama-C 31.0 + Why3 + Alt-Ergo in that switch ---
+# --- Install dune + Frama-C 33.0 + Why3 + Alt-Ergo in that switch ---
 RUN bash -lc 'eval "$(opam env --switch=ocaml5)" \
  && opam install -y dune \
  && opam install -y opam-depext \
- && opam depext -y frama-c.31.0 why3 alt-ergo \
- && opam install -y frama-c.31.0 why3 alt-ergo'
+ && opam depext -y frama-c.33.0 why3 alt-ergo \
+ && opam install -y frama-c.33.0 why3 alt-ergo'
 
 # --- Solvers ---
 RUN set -eux; \
