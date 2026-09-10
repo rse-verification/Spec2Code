@@ -34,6 +34,7 @@ def test_framac_run_builds_expected_command_and_context_flags(tmp_path, monkeypa
         timeout=42,
         model="typed",
         rte=True,
+        inline_calls="ShutdownAlgorithm_10ms",
     )
 
     result = critic.run(
@@ -50,6 +51,7 @@ def test_framac_run_builds_expected_command_and_context_flags(tmp_path, monkeypa
     assert seen["timeout"] == 42
     assert seen["cwd"] == str(tmp_path)
     assert "-wp" in seen["cmd"]
+    assert "-inline-calls ShutdownAlgorithm_10ms" in seen["cmd"]
     assert "-wp-rte" in seen["cmd"]
     assert "-wp-no-let" in seen["cmd"]
     assert "-wp-smoke-tests" in seen["cmd"]
@@ -61,6 +63,29 @@ def test_framac_run_builds_expected_command_and_context_flags(tmp_path, monkeypa
     assert native["inline_targets"] == ["ShutdownAlgorithm_10ms"]
     assert native["rte"] is True
     assert native["wp_timeout"] == 7
+    assert native["inline_calls"] == "ShutdownAlgorithm_10ms"
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_framac_inline_calls_argument_is_shell_quoted(tmp_path, monkeypatch):
+    c_file = _make_c_file(tmp_path)
+    seen = {}
+
+    def _fake_run_command(cmd, timeout, cwd=None):
+        seen["cmd"] = cmd
+        return "Proved goals: 1 / 1\n", "", True
+
+    monkeypatch.setattr(critics_framac_wp, "run_command", _fake_run_command)
+
+    critic = critics_framac_wp.FramaCWPCritic(
+        solvers=["Alt-Ergo"],
+        wp_timeout=2,
+        inline_calls="foo bar",
+    )
+    critic.run({"c_file_path": str(c_file)})
+
+    assert "-inline-calls 'foo bar'" in seen["cmd"]
 
 
 @pytest.mark.unit

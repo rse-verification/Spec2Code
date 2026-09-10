@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Dict, List, Optional
 
@@ -80,10 +81,13 @@ def run_critics_on_artifacts(
         ctx_base["include_dirs"] = list(include_dirs)
     if defines:
         ctx_base["defines"] = list(defines)
-    if compiled_output_path is not None:
-        ctx_base["compiled_output_path"] = compiled_output_path
     if remove_compiled is not None:
         ctx_base["remove_compiled"] = remove_compiled
+
+    if compiled_output_path is None:
+        compiled_output_path = f"{raw_c_path}.out"
+
+    ctx_base["compiled_output_path"] = compiled_output_path
 
     targets = dict(critic_targets or {})
     configs = dict(critic_configs or {})
@@ -98,8 +102,13 @@ def run_critics_on_artifacts(
     results: List[CriticResult] = []
     overall_success = True
     overall_score = 1.0
+    compile_succeeded: Optional[bool] = None
 
     critics_list = list(critics)
+
+    # Make sure compile always runs first because of dependencies
+    critics_list.sort(key=lambda c: 0 if getattr(c, "name", "") == "compile" else 1)
+
     total_critics = len(critics_list)
     if total_critics:
         print(f"[critics] running {total_critics} critic(s)...")
@@ -132,6 +141,8 @@ def run_critics_on_artifacts(
                 results.append(r)
                 overall_success = False
                 overall_score = 0.0
+                if name == "compile":
+                    compile_succeeded = False
                 continue
             c_path = spec_c_path
         else:
@@ -143,6 +154,34 @@ def run_critics_on_artifacts(
             "context": {**dict(ctx_base), **n_cfg},
         }
 
+        if name == "valgrind" and compile_succeeded is False:
+            msg = "Compilation failed; compiled executable is unavailable."
+            r = {
+                "tool": name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Critic dependency failed.",
+                "metrics": {
+                    "message": msg,
+                    "compiled_output_path": compiled_output_path,
+                    "elapsed_time_s": 0.0,
+                },
+                "findings": [{
+                    "tool": name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": compiled_output_path},
+                    "rule": None,
+                }],
+                "raw_output": "",
+                "elapsed_time_s": 0.0,
+            }
+            results.append(r)
+            overall_success = False
+            overall_score = 0.0
+            print(f"[critics] {idx}/{total_critics} done: {name} fail (0s)")
+            continue
+
         t0 = time.perf_counter()
         r = critic.run(inp)
         elapsed = time.perf_counter() - t0
@@ -152,11 +191,20 @@ def run_critics_on_artifacts(
         r["elapsed_time_s"] = elapsed
 
         results.append(r)
+        if name == "compile":
+            compile_succeeded = bool(r["success"])
         overall_success = overall_success and bool(r["success"])
         overall_score = min(overall_score, float(r.get("score", 0.0)))
 
         status = "ok" if r.get("success") else "fail"
         print(f"[critics] {idx}/{total_critics} done: {name} {status} ({_fmt_duration(elapsed)})")
+
+    if remove_compiled and compiled_output_path:
+        try:
+            if os.path.exists(compiled_output_path):
+                os.remove(compiled_output_path)
+        except OSError:
+            pass
 
     return {
         "critics_success": overall_success,

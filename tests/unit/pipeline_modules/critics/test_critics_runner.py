@@ -7,8 +7,10 @@ import pytest
 from spec2code.pipeline_modules.critics import critics_runner
 from spec2code.pipeline_modules.critics.critics_compile import CompileCritic
 from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic
+from spec2code.pipeline_modules.critics.critics_esbmc import ESBMCCritic
 from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
+from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
 
 
 class _FakeCritic:
@@ -52,6 +54,7 @@ def test_build_default_critics_respects_framac_options():
                 "smoke_tests": True,
                 "model": "typed",
                 "rte": False,
+                "inline-calls": "ShutdownAlgorithm_10ms",
             }
         },
     )
@@ -68,6 +71,7 @@ def test_build_default_critics_respects_framac_options():
     assert framac.smoke_tests is True
     assert framac.model == "typed"
     assert framac.rte is False
+    assert framac.inline_calls == "ShutdownAlgorithm_10ms"
     assert framac.timeout == 88
 
 
@@ -88,19 +92,21 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     custom_script = str(tmp_path / "vernfr.sh")
 
     critics = critics_runner.build_critics_from_names(
-        names=["cppcheck-misra", "framac-wp", "vernfr-control-flow"],
+        names=["cppcheck-misra", "framac-wp", "vernfr-control-flow", "valgrind"],
         solvers=["Alt-Ergo"],
         timeout=60,
         critic_options={
             "cppcheck-misra": {"timeout": 123, "misra_rules_path": custom_rules},
             "framac-wp": {"timeout": 77, "wp_timeout": 5, "model": "typed", "rte": False},
             "vernfr-control-flow": {"timeout": 41, "script_path": custom_script},
+            "valgrind": {"heap_limit_bytes": 2048, "stack_limit_bytes": 1024},
         },
     )
 
     cpp = critics[0]
     framac = critics[1]
     vernfr = critics[2]
+    valgrind = critics[3]
 
     assert isinstance(cpp, CppcheckMisraCritic)
     assert cpp.timeout == 123
@@ -116,6 +122,53 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     assert vernfr.timeout == 41
     assert vernfr.default_script_path == custom_script
     assert vernfr.name == "vernfr-control-flow"
+
+    assert isinstance(valgrind, ValgrindCritic)
+    assert valgrind.massif is True
+    assert valgrind.heap_limit_bytes == 2048
+    assert valgrind.stack_limit_bytes == 1024
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_build_esbmc_uses_function_names_option():
+    critics = critics_runner.build_critics_from_names(
+        names=["esbmc"],
+        solvers=[],
+        critic_options={"esbmc": {"function_names": ["Init", "Step"]}},
+    )
+
+    assert len(critics) == 1
+    assert isinstance(critics[0], ESBMCCritic)
+    assert critics[0].function_names == ["Init", "Step"]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_build_esbmc_uses_check_and_stack_options():
+    critics = critics_runner.build_critics_from_names(
+        names=["esbmc"],
+        solvers=[],
+        critic_options={
+            "esbmc": {
+                "uninitialised_vars_check": True,
+                "struct_fields_check": True,
+                "strict_types": True,
+                "ub_shift_check": True,
+                "unsigned_overflow_check": True,
+                "stack_limit": 4096,
+            }
+        },
+    )
+
+    assert len(critics) == 1
+    assert isinstance(critics[0], ESBMCCritic)
+    assert critics[0].uninitialised_vars_check is True
+    assert critics[0].struct_fields_check is True
+    assert critics[0].strict_types is True
+    assert critics[0].ub_shift_check is True
+    assert critics[0].unsigned_overflow_check is True
+    assert critics[0].stack_limit == 4096
 
 
 @pytest.mark.unit
@@ -225,3 +278,26 @@ def test_run_critics_on_artifacts_applies_per_critic_timeout_override():
     )
 
     assert critic.calls[0]["timeout"] == 123
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_failure_skips_valgrind_but_runs_source_critics(tmp_path):
+    compile_critic = _FakeCritic("compile", success=False, score=0.0)
+    valgrind = _FakeCritic("valgrind", success=True, score=1.0)
+    source_critic = _FakeCritic("cppcheck-misra", success=True, score=1.0)
+    compiled = tmp_path / "stale.out"
+    compiled.write_text("stale", encoding="utf-8")
+
+    out = critics_runner.run_critics_on_artifacts(
+        critics=[valgrind, source_critic, compile_critic],
+        raw_c_path="raw.c",
+        compiled_output_path=str(compiled),
+    )
+
+    assert compile_critic.calls
+    assert valgrind.calls == []
+    assert source_critic.calls
+    valgrind_result = next(r for r in out["critics_results"] if r["tool"] == "valgrind")
+    assert valgrind_result["success"] is False
+    assert valgrind_result["summary"] == "Critic dependency failed."

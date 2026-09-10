@@ -1,5 +1,6 @@
 import os
 import re
+import shlex
 from typing import Any, Dict, List, Optional
 
 from spec2code.pipeline_modules.subprocess_creator import run_command
@@ -22,6 +23,7 @@ class FramaCWPCritic:
         timeout: int = 60,
         model: Optional[Any] = "real",
         rte: bool = True,
+        inline_calls: Optional[Any] = None,
     ):
         self.solvers = solvers
         self.wp_timeout = wp_timeout
@@ -29,6 +31,11 @@ class FramaCWPCritic:
         self.timeout = timeout
         self.model = model
         self.rte = rte
+        self.inline_calls = (
+            None
+            if inline_calls is None or not str(inline_calls).strip()
+            else str(inline_calls).strip()
+        )
 
     def run(self, inp: CriticInput) -> CriticResult:
         c_file_path = inp["c_file_path"]
@@ -50,13 +57,17 @@ class FramaCWPCritic:
 
         # No -then or inlining; run WP directly on the selected file.
         parts += [f"'{c_file_path}'", "-wp"]
+        if self.inline_calls is not None:
+            parts += ["-inline-calls", shlex.quote(self.inline_calls)]
         if self.rte:
             parts += ["-wp-rte"]
         if ctx.get("framac_wp_no_let"):
             parts += ["-wp-no-let"]
+        if ctx.get("framac_wp_no_split_switch"):
+            parts += ["-wp-no-split-switch"]
         parts += [
             "-wp-status",
-            f"-wp-prover {solvers_string}",
+            f"-wp-prover {shlex.quote(solvers_string)}",
             f"-wp-timeout {int(self.wp_timeout)}",
         ]
         if self.smoke_tests:
@@ -96,7 +107,7 @@ class FramaCWPCritic:
                     }
                 ],
                 native={
-                    "completed": False, 
+                    "completed": False,
                     "stdout": stdout_str,
                     "stderr": stderr_str,
                     "command": frama_c_command,
@@ -105,7 +116,9 @@ class FramaCWPCritic:
                     "acsl_import_path": None,
                     "c_file_path": c_file_path,
                     "rte": self.rte,
+                    "solvers": list(solvers),
                     "wp_timeout": self.wp_timeout,
+                    "inline_calls": self.inline_calls,
                     "timeout": timeout,
                     "process_real_s": timing.get("real"),
                     "process_user_s": timing.get("user"),
@@ -118,19 +131,21 @@ class FramaCWPCritic:
             raw_output,
             c_file_path,
             frama_c_command,
-                native_extra={
+            native_extra={
                 "cwd": workdir,
                 "use_acsl_import": False,
                 "acsl_import_path": None,
                 "c_file_path": c_file_path,
                 "rte": self.rte,
+                "solvers": list(solvers),
                 "wp_timeout": self.wp_timeout,
-                    "timeout": timeout,
-                    "process_real_s": timing.get("real"),
-                    "process_user_s": timing.get("user"),
-                    "process_sys_s": timing.get("sys"),
-                    **native_extra,
-                },
+                "inline_calls": self.inline_calls,
+                "timeout": timeout,
+                "process_real_s": timing.get("real"),
+                "process_user_s": timing.get("user"),
+                "process_sys_s": timing.get("sys"),
+                **native_extra,
+            },
         )
 
     # -------------------------

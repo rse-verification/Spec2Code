@@ -54,13 +54,17 @@ def test_compile_run_success_no_warnings(tmp_path, monkeypatch):
     compiled.parent.mkdir(parents=True, exist_ok=True)
     compiled.write_text("obj", encoding="utf-8")
 
-    monkeypatch.setattr(critics_compile, "run_command", lambda cmd, timeout: ("", "", True))
+    def _fake_run_command(cmd, timeout):
+        compiled.write_text("new obj", encoding="utf-8")
+        return "", "", True
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
 
     critic = critics_compile.CompileCritic()
     result = critic.run(
         {
             "c_file_path": str(c_file),
-            "context": {"compiled_output_path": str(compiled), "remove_compiled": True},
+            "context": {"compiled_output_path": str(compiled)},
         }
     )
 
@@ -68,6 +72,46 @@ def test_compile_run_success_no_warnings(tmp_path, monkeypatch):
     assert result["score"] == 1.0
     assert result["summary"] == "Compilation succeeded."
     assert result["findings"] == []
+    assert compiled.exists()
+    assert compiled.read_text(encoding="utf-8") == "new obj"
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_run_nonzero_exit_without_diagnostics_returns_failure(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    monkeypatch.setattr(
+        critics_compile,
+        "run_command",
+        lambda cmd, timeout: ("", "compiler terminated", True, 2),
+    )
+
+    result = critics_compile.CompileCritic().run({"c_file_path": str(c_file)})
+
+    assert result["success"] is False
+    assert result["metrics"]["exit_code"] == 2
+    assert result["findings"][0]["message"] == "compiler terminated"
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_compile_run_removes_stale_output_before_failed_compilation(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    compiled = tmp_path / "main.o"
+    compiled.write_text("stale", encoding="utf-8")
+
+    def _fake_run_command(cmd, timeout):
+        assert not compiled.exists()
+        return "", "failed", True, 1
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
+
+    result = critics_compile.CompileCritic().run({
+        "c_file_path": str(c_file),
+        "context": {"compiled_output_path": str(compiled)},
+    })
+
+    assert result["success"] is False
     assert not compiled.exists()
 
 
@@ -107,12 +151,57 @@ def test_compile_run_error_returns_failure_with_location(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_compile_run_error_returns_one_finding_per_error(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    err = (
+        f"{c_file}:12:3: error: expected ';'\n"
+        f"{c_file}:14:9: error: undeclared identifier 'x'"
+    )
+    monkeypatch.setattr(critics_compile, "run_command", lambda cmd, timeout: ("", err, True))
+
+    critic = critics_compile.CompileCritic()
+    result = critic.run({"c_file_path": str(c_file)})
+
+    assert result["success"] is False
+    assert len(result["findings"]) == 2
+    assert result["findings"][0]["message"] == f"{c_file}:12:3: error: expected ';'"
+    assert result["findings"][0]["location"]["line"] == 12
+    assert result["findings"][1]["message"] == f"{c_file}:14:9: error: undeclared identifier 'x'"
+    assert result["findings"][1]["location"]["line"] == 14
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_extract_diagnostics_keeps_gcc_code_frames_but_not_arbitrary_pipe_lines(tmp_path):
+    c_file = _write_c_file(tmp_path)
+    raw = (
+        f"{c_file}:12:3: error: expected ';'\n"
+        "  12 |     return 0;\n"
+        "      |          ^~~\n"
+        "note: unrelated output | with pipe\n"
+        f"{c_file}:14:9: error: undeclared identifier 'x'\n"
+    )
+
+    diagnostics = critics_compile._extract_diagnostics(raw)
+
+    assert diagnostics["errors"] == [
+        f"{c_file}:12:3: error: expected ';'\n  12 |     return 0;\n      |          ^~~",
+        f"{c_file}:14:9: error: undeclared identifier 'x'",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_compile_run_respects_remove_compiled_false(tmp_path, monkeypatch):
     c_file = _write_c_file(tmp_path)
     compiled = tmp_path / "main.o"
     compiled.write_text("obj", encoding="utf-8")
 
-    monkeypatch.setattr(critics_compile, "run_command", lambda cmd, timeout: ("", "", True))
+    def _fake_run_command(cmd, timeout):
+        compiled.write_text("new obj", encoding="utf-8")
+        return "", "", True
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
 
     critic = critics_compile.CompileCritic()
     result = critic.run(
@@ -169,6 +258,37 @@ def test_compile_run_builds_command_with_context_options(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_compile_run_uses_test_harness_as_source_when_provided(tmp_path, monkeypatch):
+    c_file = _write_c_file(tmp_path)
+    harness = tmp_path / "harness.c"
+    harness.write_text('#include "main.c"\n', encoding="utf-8")
+
+    seen = {}
+
+    def _fake_run_command(cmd, timeout):
+        seen["cmd"] = cmd
+        return "", "", True
+
+    monkeypatch.setattr(critics_compile, "run_command", _fake_run_command)
+
+    critic = critics_compile.CompileCritic()
+    result = critic.run(
+        {
+            "c_file_path": str(c_file),
+            "context": {
+                "test_harness_path": str(harness),
+                "compiled_output_path": str(tmp_path / "main.out"),
+            },
+        }
+    )
+
+    assert result["success"] is True
+    assert str(harness) in seen["cmd"]
+    assert " -c " not in f" {seen['cmd']} "
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_parse_gcc_location_supports_line_and_line_column():
     critic = critics_compile.CompileCritic()
 
@@ -186,4 +306,14 @@ def test_warning_finding_falls_back_to_default_file_when_no_location():
     finding = critic._warning_finding("just a warning", "default.c")
 
     assert finding["severity"] == "warning"
+    assert finding["location"] == {"file": "default.c"}
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_error_finding_falls_back_to_default_file_when_no_location():
+    critic = critics_compile.CompileCritic()
+    finding = critic._error_finding("just an error", "default.c")
+
+    assert finding["severity"] == "error"
     assert finding["location"] == {"file": "default.c"}

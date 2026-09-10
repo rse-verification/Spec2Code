@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from spec2code.core import pipeline_executor
+from spec2code.pipeline_modules.config_loader import PreparedConfig
 
 
 class _FakeLLM:
@@ -17,6 +18,11 @@ class _FakeLLM:
 class _FakeRuntime:
     def __init__(self, model_names):
         self.llms_available = {name: _FakeLLM() for name in model_names}
+
+
+@pytest.mark.unit
+def test_pipeline_executor_uses_package_prepared_config():
+    assert pipeline_executor.PreparedConfig is PreparedConfig
 
 
 def _make_cfg(tmp_path: Path, *, n_programs: int = 1, with_module_state: bool = False):
@@ -30,8 +36,7 @@ def _make_cfg(tmp_path: Path, *, n_programs: int = 1, with_module_state: bool = 
     csi = SimpleNamespace(
         input_natural_language_specification="nlspec",
         input_interface="void ShutdownAlgorithm_10ms(void);\n",
-        input_type_definitions="typedef int tI32;",
-        input_headers_json="[]",
+        input_headers=[],
         input_types_header_filename="types.h",
         headers_dir=str(headers_dir),
         module_state_header_filename="module_state_and_constants.h" if with_module_state else None,
@@ -115,14 +120,16 @@ def test_execute_pipeline_prepared_happy_path_writes_outputs_and_copies_files(tm
 
     llm_dir = Path(cfg.output_folder) / "test-llm-shutdown"
     sample_dir = llm_dir / "sample_000"
+    attempt_dir = sample_dir / "attempt_000"
     assert (llm_dir / "prompt.txt").is_file()
     assert (sample_dir / "output.json").is_file()
+    assert (attempt_dir / "output.json").is_file()
     assert (llm_dir / "output.json").is_file()
     assert (Path(cfg.output_folder) / "output_pipeline.json").is_file()
 
-    # copied headers + interface into sample folder
-    assert (sample_dir / "types.h").is_file()
-    assert (sample_dir / "shutdown_algorithm.is").is_file()
+    # copied headers + interface into attempt folder
+    assert (attempt_dir / "types.h").is_file()
+    assert (attempt_dir / "shutdown_algorithm.is").is_file()
 
     settings = seen["kwargs"]["settings"]
     assert settings.timeout_s == 77
@@ -132,6 +139,9 @@ def test_execute_pipeline_prepared_happy_path_writes_outputs_and_copies_files(tm
     with (Path(cfg.output_folder) / "output_pipeline.json").open("r", encoding="utf-8") as f:
         data = json.load(f)
     assert data["name"] == "cfg-name"
+    assert data["input_headers"] == []
+    assert "input_headers_json" not in data
+    assert "module_state_header_content" not in data
     assert "total_elapsed_time" in data
 
 
@@ -276,3 +286,108 @@ def test_execute_pipeline_prepared_writes_output_txt_with_timing_metrics(tmp_pat
     assert "process_real_s" in content
     assert "process_user_s" in content
     assert "process_sys_s" in content
+
+
+@pytest.mark.unit
+def test_execute_pipeline_prepared_retries_until_critics_pass(tmp_path, monkeypatch):
+    cfg = _make_cfg(tmp_path)
+    cfg.max_generation_iterations = 3
+    runtime = _FakeRuntime(cfg.llms_used)
+
+    monkeypatch.setattr(
+        pipeline_executor,
+        "extract_llm_response_info",
+        lambda output_llm: {"code": "int main(void){return 0;}\n", "generated_header": "#pragma once\n"},
+    )
+
+    critic_results = [
+        {"verify_success": False, "critics_success": False, "critics_score": 0.0, "critics_results": []},
+        {"verify_success": True, "critics_success": True, "critics_score": 1.0, "critics_results": []},
+    ]
+    process_calls = {"n": 0}
+
+    def _fake_process_llm_generated_code(**kwargs):
+        process_calls["n"] += 1
+        return critic_results.pop(0)
+
+    repair_prompts = []
+
+    def _fake_build_repair_prompt(**kwargs):
+        repair_prompts.append(kwargs)
+        return kwargs["original_prompt"] + "\nREPAIR"
+
+    monkeypatch.setattr(pipeline_executor, "process_llm_generated_code", _fake_process_llm_generated_code)
+    monkeypatch.setattr(pipeline_executor, "_build_repair_prompt", _fake_build_repair_prompt)
+
+    pipeline_executor.execute_pipeline_prepared(cfg, runtime=runtime)
+
+    output_json = Path(cfg.output_folder) / "test-llm-shutdown" / "sample_000" / "output.json"
+    data = json.loads(output_json.read_text(encoding="utf-8"))
+
+    assert process_calls["n"] == 2
+    assert len(repair_prompts) == 1
+    assert data["critics_success"] is True
+    assert data["generation_stop_reason"] == "all_critics_passed"
+    assert data["generation_attempt_count"] == 2
+
+
+@pytest.mark.unit
+def test_build_repair_prompt_includes_failed_attempt_and_failed_critics():
+    prompt = pipeline_executor._build_repair_prompt(
+        original_prompt="ORIGINAL TASK\n",
+        attempt_entry={
+            "code": "int bad(void) { return missing; }\n",
+            "generated_header": "int bad(void);\n",
+            "critics_success": False,
+            "critics_score": 0.0,
+            "verify_success": False,
+            "verify_message": "At least one critic failed.",
+            "critics_results": [
+                {"tool": "compile", "success": False, "score": 0.0, "summary": "missing undeclared"},
+                {"tool": "cppcheck-misra", "success": True, "score": 1.0, "summary": "ok"},
+            ],
+        },
+    )
+
+    assert prompt.startswith("===== Original Task =====")
+    assert "ORIGINAL TASK" in prompt
+    assert "int bad(void) { return missing; }" in prompt
+    assert "int bad(void);" in prompt
+    assert "Verification summary:" in prompt
+    assert "- Critics passed: False" in prompt
+    assert "- Verification message: At least one critic failed." in prompt
+    assert "Failed critic diagnostics:" in prompt
+    assert "1. compile" in prompt
+    assert "Summary: missing undeclared" in prompt
+    assert "cppcheck-misra" not in prompt
+
+
+@pytest.mark.unit
+def test_format_diagnostic_payload_for_llm_handles_nested_details():
+    formatted = pipeline_executor._format_diagnostic_payload_for_llm(
+        {
+            "critics_success": False,
+            "critics_score": 0.25,
+            "verify_success": False,
+            "verify_message": "Verification failed.",
+            "critics_results": [
+                {
+                    "tool": "framac-wp",
+                    "summary": "proof obligations failed",
+                    "findings": [
+                        {"location": "foo.c:12", "message": "postcondition may fail"},
+                    ],
+                    "metrics": {"elapsed_time_s": 1.5},
+                    "raw_output": "goal typed_postcond is unknown",
+                }
+            ],
+        }
+    )
+
+    assert "```json" not in formatted
+    assert "Verification summary:" in formatted
+    assert "1. framac-wp" in formatted
+    assert "Findings:" in formatted
+    assert "- location: foo.c:12" in formatted
+    assert "- elapsed_time_s: 1.5" in formatted
+    assert "Raw Output: goal typed_postcond is unknown" in formatted

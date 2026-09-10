@@ -75,6 +75,7 @@ def build_config_dict(paths: Dict[str, Path], output_folder: str = "output/test_
         "selected_prompt_template": "zero-shot",
         "llms_used": ["test-llm-shutdown"],
         "n_programs_generated": 1,
+        "max_generation_iterations": 1,
         "output_folder": output_folder,
         "natural_spec_path": str(paths["natural_spec_path"]),
         "interface_path": str(paths["interface_path"]),

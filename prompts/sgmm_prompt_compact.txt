@@ -14,7 +14,7 @@ Inputs:
 - input_natural_language_specification
 - input_interface
 - input_headers (filename/provides/content)
-- input_type_definitions
+- input_types_header_filename (the primary types header within input_headers)
 
 Core obligations:
 1) Implement exactly the entry function prototype(s) from input_interface (byte-for-byte).
@@ -22,7 +22,7 @@ Core obligations:
 3) Header must have include guard and declare exactly the required prototype(s).
 4) Do not add extra externally visible functions; helpers must be static.
 5) Do not emit ACSL in the .c.
-6) Use types/macros from input_type_definitions exactly; do not redefine them.
+6) Use types/macros from input_headers exactly; do not redefine them.
 
 Include synthesis (MANDATORY):
 A) Always include "<same_basename>.h" first in .c.
@@ -30,7 +30,7 @@ B) For each external function call used in .c:
    - Resolve it via input_interface.external_calls.
    - Include the mapped header.
 C) For each non-local macro/type used in .c:
-   - Ensure provider exists in input_type_definitions or selected headers.
+   - Ensure its provider exists in input_headers and include that header.
 D) Do not invent headers or declarations.
 
 State/storage rules:
@@ -57,6 +57,6 @@ MISRA-C:2012 intent (MANDATORY):
 
 Internal self-check before output (MANDATORY):
 - Every external call in .c is declared by an included header.
-- Every non-local macro/type is provided by input_type_definitions or included headers.
+- Every non-local macro/type is provided by an included header from input_headers.
 - .c/.h prototypes match exactly.
 - If any check fails, revise code before output.

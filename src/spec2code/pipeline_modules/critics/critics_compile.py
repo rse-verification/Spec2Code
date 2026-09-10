@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 from typing import Any, Dict, List, Tuple
 
 from spec2code.pipeline_modules.subprocess_creator import run_command
@@ -14,12 +15,13 @@ class CompileCritic:
 
     Uses inp["c_file_path"].
     Optional via inp.get("context", {}):
-      - compiled_output_path: str   (default: "<c_file_path>.o")
-      - remove_compiled: bool       (default: True)
+      - compiled_output_path: str   (default: "<c_file_path>.out")
       - gcc: str                    (default: "gcc")
       - gcc_flags: List[str]        (default: ["-c"])
       - include_dirs: List[str]     (default: [])
       - defines: List[str]          (default: [])
+      - test_harness_path: str      (optional; compile/link this harness instead of c_file_path)
+      - test_harness_source_name: str (optional; filename/path the harness includes for c_file_path)
     """
 
     name = "compile"
@@ -29,10 +31,45 @@ class CompileCritic:
         timeout = int(inp.get("timeout", 60))
         ctx: Dict[str, Any] = dict(inp.get("context", {}))
 
-        compiled_output_path = str(ctx.get("compiled_output_path", f"{c_file_path}.o"))
-        remove_compiled = bool(ctx.get("remove_compiled", True))
+        test_harness_path = str(ctx.get("test_harness_path", "") or "").strip()
+        test_harness_source_name = str(ctx.get("test_harness_source_name", "") or "").strip()
+
+        compiled_output_path = str(ctx.get("compiled_output_path", f"{c_file_path}.out"))
+
+        try:
+            os.remove(compiled_output_path)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            msg = f"Failed to remove stale compiled output: {exc}"
+            return {
+                "tool": self.name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Compilation failed.",
+                "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                "findings": [{
+                    "tool": self.name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": compiled_output_path},
+                    "rule": None,
+                }],
+                "raw_output": msg,
+            }
+
         gcc = str(ctx.get("gcc", "gcc"))
-        gcc_flags: List[str] = list(ctx.get("gcc_flags", ["-c"]))
+
+        gcc_flags: List[str] = list(ctx.get("gcc_flags", []))
+
+        # Don't link if no test case
+        if not test_harness_path and "-c" not in gcc_flags:
+            gcc_flags.append("-c")
+
+        # Only one source file
+        # Harness should include generated c file directly
+        source_file = test_harness_path if test_harness_path else c_file_path
+
         include_dirs: List[str] = list(ctx.get("include_dirs", []))
         defines: List[str] = list(ctx.get("defines", []))
         extra_args: List[str] = list(inp.get("extra_args", []))
@@ -55,6 +92,61 @@ class CompileCritic:
                 "raw_output": msg,
             }
 
+        if test_harness_path and not os.path.exists(test_harness_path):
+            msg = f"Test harness file does not exist: {test_harness_path}"
+            return {
+                "tool": self.name,
+                "success": False,
+                "score": 0.0,
+                "summary": "Compilation failed.",
+                "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                "findings": [{
+                    "tool": self.name,
+                    "severity": "error",
+                    "message": msg,
+                    "location": {"file": test_harness_path},
+                    "rule": None,
+                }],
+                "raw_output": msg,
+            }
+
+        cleanup_paths: List[str] = []
+        if test_harness_path and test_harness_source_name:
+            normalized_source_name = os.path.normpath(test_harness_source_name)
+            if (
+                os.path.isabs(normalized_source_name)
+                or normalized_source_name == ".."
+                or normalized_source_name.startswith(f"..{os.sep}")
+            ):
+                msg = f"Invalid test_harness_source_name: {test_harness_source_name}"
+                return {
+                    "tool": self.name,
+                    "success": False,
+                    "score": 0.0,
+                    "summary": "Compilation failed.",
+                    "metrics": {"message": msg, "compiled_output_path": compiled_output_path},
+                    "findings": [{
+                        "tool": self.name,
+                        "severity": "error",
+                        "message": msg,
+                        "location": {"file": test_harness_path},
+                        "rule": None,
+                    }],
+                    "raw_output": msg,
+                }
+
+            source_alias_path = os.path.join(os.path.dirname(c_file_path) or ".", normalized_source_name)
+            if os.path.abspath(source_alias_path) != os.path.abspath(c_file_path):
+                # Dont create new file if alias has same path as source file
+                if not os.path.exists(source_alias_path):
+                    os.makedirs(os.path.dirname(source_alias_path) or ".", exist_ok=True)
+                    shutil.copy2(c_file_path, source_alias_path)
+                    cleanup_paths.append(source_alias_path)
+
+            alias_include_dir = os.path.dirname(source_alias_path) or "."
+            if alias_include_dir not in include_dirs:
+                include_dirs.append(alias_include_dir)
+
         out_dir = os.path.dirname(compiled_output_path) or "."
         os.makedirs(out_dir, exist_ok=True)
 
@@ -66,25 +158,31 @@ class CompileCritic:
             + gcc_flags
             + def_args
             + inc_args
-            + [c_file_path, "-o", compiled_output_path]
+            + [source_file, "-o", compiled_output_path]
             + extra_args
         )
 
         # quote only when needed
         cmd = " ".join(f"'{p}'" if any(ch.isspace() for ch in p) else p for p in cmd_parts)
 
-        res = run_command(cmd, timeout)
+        try:
+            res = run_command(cmd, timeout)
+        finally:
+            _cleanup_paths(cleanup_paths)
+
         timing: Dict[str, float] = {}
+        exit_code = None
         if isinstance(res, tuple) and len(res) >= 5:
-            stdout_str, stderr_str, completed, _exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
+            stdout_str, stderr_str, completed, exit_code, timing = res[0], res[1], res[2], res[3], dict(res[4] or {})
         elif isinstance(res, tuple) and len(res) == 4:
-            stdout_str, stderr_str, completed, _exit_code = res
+            stdout_str, stderr_str, completed, exit_code = res
         else:
             stdout_str, stderr_str, completed = res  # type: ignore[misc]
         raw = (stdout_str or "") + ("\n" if (stdout_str and stderr_str) else "") + (stderr_str or "")
         diagnostics = _extract_diagnostics(raw)
 
         if not completed:
+            _cleanup_paths([compiled_output_path])
             msg = "Compilation timeout"
             return {
                 "tool": self.name,
@@ -110,15 +208,8 @@ class CompileCritic:
                 "raw_output": raw.strip() or msg,
             }
 
-        has_error = bool(diagnostics["errors"])
+        has_error = bool(diagnostics["errors"]) or exit_code not in (0, None)
         has_warning = bool(diagnostics["warnings"])
-
-        if not has_error and remove_compiled:
-            try:
-                if os.path.exists(compiled_output_path):
-                    os.remove(compiled_output_path)
-            except OSError:
-                pass
 
         if not has_error and not has_warning:
             return {
@@ -161,29 +252,34 @@ class CompileCritic:
                 "raw_output": raw.strip(),
             }
 
+        _cleanup_paths([compiled_output_path])
         msg = ("\n".join(diagnostics["errors"]) or raw or "Compilation failed.").strip()
-        err_loc = self._parse_gcc_location(diagnostics["errors"][0]) if diagnostics["errors"] else None
+        error_findings: List[Finding] = [
+            self._error_finding(line, c_file_path) for line in diagnostics["errors"]
+        ]
+        if not error_findings:
+            error_findings = [{
+                "tool": self.name,
+                "severity": "error",
+                "message": msg,
+                "location": {"file": c_file_path},
+                "rule": None,
+            }]
         return {
             "tool": self.name,
             "success": False,
             "score": 0.0,
             "summary": "Compilation failed.",
             "metrics": {
-                "message": msg,
                 "command": cmd,
                 "compiled_output_path": compiled_output_path,
+                "exit_code": exit_code,
                 "timeout": timeout,
                 "process_real_s": timing.get("real"),
                 "process_user_s": timing.get("user"),
                 "process_sys_s": timing.get("sys"),
             },
-            "findings": [{
-                "tool": self.name,
-                "severity": "error",
-                "message": msg,
-                "location": err_loc or {"file": c_file_path},
-                "rule": None,
-            }],
+            "findings": error_findings,
             "raw_output": raw.strip() or msg,
         }
 
@@ -208,18 +304,72 @@ class CompileCritic:
             "rule": None,
         }
 
+    def _error_finding(self, line: str, default_file: str) -> Finding:
+        loc = self._parse_gcc_location(line) or {"file": default_file}
+        return {
+            "tool": self.name,
+            "severity": "error",
+            "message": line,
+            "location": loc,
+            "rule": None,
+        }
+
 
 def _extract_diagnostics(raw: str) -> Dict[str, List[str]]:
     warnings: List[str] = []
     errors: List[str] = []
+
+    current_warning: str = ""
+    current_error: str = ""
     for line in (raw or "").splitlines():
-        s = line.strip()
+        raw_line = line.rstrip()
+        s = raw_line.strip()
         if not s:
             continue
+
+        if current_warning:
+            if _is_gcc_diagnostic_continuation(s):
+                current_warning = current_warning + "\n" + raw_line
+                continue
+            else:
+                warnings.append(current_warning)
+                current_warning = ""
+        elif current_error:
+            if _is_gcc_diagnostic_continuation(s):
+                current_error = current_error + "\n" + raw_line
+                continue
+            else:
+                errors.append(current_error)
+                current_error = ""
+
         lower = s.lower()
         if "warning:" in lower:
-            warnings.append(s)
-            continue
-        if "error:" in lower or "fatal error" in lower or "undefined reference" in lower:
-            errors.append(s)
+            #warnings.append(s)
+            current_warning = raw_line
+        elif "error:" in lower or "fatal error" in lower or "undefined reference" in lower:
+            #errors.append(s)
+            current_error = raw_line
+
+    if current_warning:
+        warnings.append(current_warning)
+    if current_error:
+        errors.append(current_error)
+
     return {"warnings": warnings, "errors": errors}
+
+
+def _is_gcc_diagnostic_continuation(line: str) -> bool:
+    stripped = line.lstrip()
+    return bool(
+        re.match(r"^\d+\s*\|\s*", stripped)
+        or re.match(r"^\|\s*[\^~]", stripped)
+    )
+
+
+def _cleanup_paths(paths: List[str]) -> None:
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass

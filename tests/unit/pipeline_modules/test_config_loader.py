@@ -32,6 +32,37 @@ def test_load_and_prepare_configs_success(tmp_path, monkeypatch):
     assert item.case_study_inputs.input_interface.strip().startswith("Module shutdown_algorithm")
     assert item.filled_prompt.startswith("PROMPT::zero-shot")
     assert item.critics_instances == ["critic:compile"]
+    assert item.max_generation_iterations == 1
+
+
+@pytest.mark.unit
+def test_active_prompt_uses_structured_headers_as_single_content_source(tmp_path, monkeypatch):
+    paths = write_shutdown_case_study(tmp_path)
+    config_path = tmp_path / "config.json"
+    cfg = build_config_dict(paths)
+    write_config(config_path, [cfg])
+
+    monkeypatch.setattr(config_loader, "build_critics_from_names", lambda **kwargs: ["critic:compile"])
+
+    item = config_loader.load_and_prepare_configs(str(config_path), solvers=[])[0]
+    prompt = item.filled_prompt
+
+    assert prompt.count("typedef bool tB;") == 1
+    assert prompt.count("g_rs_state[4]") == 1
+    assert prompt.count("--- BEGIN INPUT HEADER:") == 3
+    assert (
+        "--- BEGIN INPUT HEADER: safety_types.h ---\n"
+        "Provides: Types.\n"
+        "Content:\n"
+        "#ifndef SAFETY_TYPES_H\n"
+    ) in prompt
+    assert "\"content\":" not in prompt
+    assert "input_type_definitions" not in prompt
+    assert not hasattr(item.case_study_inputs, "input_type_definitions")
+    assert not hasattr(item.case_study_inputs, "input_headers_json")
+
+    headers = item.case_study_inputs.input_headers
+    assert [header["filename"] for header in headers] == list(cfg["headers_manifest"])
 
 
 @pytest.mark.unit
@@ -132,6 +163,14 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
     cfg["critic_options"] = {
         "framac-wp": {"wp_timeout": 9, "rte": False},
         "cppcheck-misra": {"timeout": 120},
+        "esbmc": {
+            "uninitialised_vars_check": True,
+            "struct_fields_check": True,
+            "strict_types": True,
+            "ub_shift_check": True,
+            "unsigned_overflow_check": True,
+            "stack_limit": 4096,
+        },
     }
     write_config(config_path, [cfg])
 
@@ -149,6 +188,40 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
     assert item.critic_context["framac_wp_no_let"] is True
     assert item.critic_options["framac-wp"]["wp_timeout"] == 9
     assert captured["critic_options"]["cppcheck-misra"]["timeout"] == 120
+    assert captured["critic_options"]["esbmc"] == {
+        "uninitialised_vars_check": True,
+        "struct_fields_check": True,
+        "strict_types": True,
+        "ub_shift_check": True,
+        "unsigned_overflow_check": True,
+        "stack_limit": 4096,
+    }
+
+
+@pytest.mark.unit
+def test_load_and_prepare_configs_maps_compile_test_harness_options(tmp_path, monkeypatch):
+    paths = write_shutdown_case_study(tmp_path)
+    harness = paths["headers_dir"] / "shutdown_algorithm_tests.c"
+    harness.write_text('#include "shutdown_algorithm.c"\n', encoding="utf-8")
+    config_path = tmp_path / "config.json"
+    cfg = build_config_dict(paths)
+    cfg["critic_options"] = {
+        "compile": {
+            "test_harness_path": str(harness),
+            "test_harness_source_name": "shutdown_algorithm.c",
+        }
+    }
+    write_config(config_path, [cfg])
+
+    monkeypatch.setattr(config_loader, "format_prompt", lambda template, inputs: "prompt")
+    monkeypatch.setattr(config_loader, "build_critics_from_names", lambda **kwargs: ["critic:ok"])
+
+    prepared = config_loader.load_and_prepare_configs(str(config_path), solvers=[])
+    item = prepared[0]
+
+    assert item.critic_options["compile"]["test_harness_path"] == str(harness)
+    assert item.critic_options["compile"]["test_harness_source_name"] == "shutdown_algorithm.c"
+    assert "test_harness_path" not in item.critic_context
 
 
 @pytest.mark.unit

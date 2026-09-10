@@ -84,6 +84,7 @@ class Provider(Protocol):
         prompt: str,
         temperature: float,
         max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> _SimpleLLMResponse: ...
 
 
@@ -104,6 +105,7 @@ class BedrockProvider:
         prompt: str,
         temperature: float,
         max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> _SimpleLLMResponse:
         started = time.perf_counter()
         # Prefer Converse API because it is model-family agnostic across Bedrock
@@ -178,6 +180,7 @@ class OpenAICompatibleProvider:
         prompt: str,
         temperature: float,
         max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> _SimpleLLMResponse:
         started = time.perf_counter()
         kwargs: Dict[str, Any] = {
@@ -185,7 +188,9 @@ class OpenAICompatibleProvider:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": float(temperature),
         }
-        if max_tokens is not None:
+        if max_completion_tokens is not None:
+            kwargs["max_completion_tokens"] = int(max_completion_tokens)
+        elif max_tokens is not None:
             kwargs["max_tokens"] = int(max_tokens)
 
         resp = self._client.chat.completions.create(**kwargs)
@@ -219,12 +224,14 @@ class ModelHandle:
         provider: Provider,
         default_temperature: float = 0.7,
         default_max_tokens: Optional[int] = None,
+        default_max_completion_tokens: Optional[int] = None,
     ):
         self.name = name
         self.model_id = model_id
         self._provider = provider
         self._default_temperature = float(default_temperature)
         self._default_max_tokens = default_max_tokens
+        self._default_max_completion_tokens = default_max_completion_tokens
 
     def prompt(
         self,
@@ -232,14 +239,21 @@ class ModelHandle:
         stream: bool = False,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
     ) -> _SimpleLLMResponse:
         if stream:
             raise NotImplementedError("Streaming not implemented.")
+        effective_max_tokens = max_tokens
+        effective_max_completion_tokens = max_completion_tokens
+        if effective_max_tokens is None and effective_max_completion_tokens is None:
+            effective_max_tokens = self._default_max_tokens
+            effective_max_completion_tokens = self._default_max_completion_tokens
         return self._provider.generate(
             model_id=self.model_id,
             prompt=prompt,
             temperature=float(temperature if temperature is not None else self._default_temperature),
-            max_tokens=max_tokens if max_tokens is not None else self._default_max_tokens,
+            max_tokens=effective_max_tokens,
+            max_completion_tokens=effective_max_completion_tokens,
         )
 
 
@@ -400,6 +414,11 @@ def build_model(name: str) -> Any:
             provider=provider,
             default_temperature=float(spec.get("default_temperature", 0.7)),
             default_max_tokens=int(spec["max_tokens"]) if spec.get("max_tokens") is not None else None,
+            default_max_completion_tokens=(
+                int(spec["max_completion_tokens"])
+                if spec.get("max_completion_tokens") is not None
+                else None
+            ),
         )
 
     model_type = spec.get("type", "llm")

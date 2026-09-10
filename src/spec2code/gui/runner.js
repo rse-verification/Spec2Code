@@ -10,6 +10,7 @@ const customPromptTemplate = document.getElementById("customPromptTemplate");
 const customModels = document.getElementById("customModels");
 const customPrograms = document.getElementById("customPrograms");
 const customTemperature = document.getElementById("customTemperature");
+const customMaxIterations = document.getElementById("customMaxIterations");
 const customOutputFolder = document.getElementById("customOutputFolder");
 const customNaturalSpecPath = document.getElementById("customNaturalSpecPath");
 const customInterfacePath = document.getElementById("customInterfacePath");
@@ -355,6 +356,7 @@ function buildCustomConfigObject() {
     selected_prompt_template: (customPromptTemplate.value || "zero-shot").trim(),
     llms_used: splitCsv(customModels.value),
     n_programs_generated: Number(customPrograms.value || 1),
+    max_generation_iterations: Number(customMaxIterations.value || 1),
     output_folder: (customOutputFolder.value || "").trim(),
     natural_spec_path: (customNaturalSpecPath.value || "").trim(),
     interface_path: interfacePath,
@@ -436,6 +438,7 @@ pickerSearch.addEventListener("input", () => {
   customModels,
   customPrograms,
   customTemperature,
+  customMaxIterations,
   customOutputFolder,
   customNaturalSpecPath,
   customInterfacePath,

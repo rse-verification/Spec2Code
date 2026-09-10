@@ -87,6 +87,7 @@ function renderOverview(data) {
     ["Critics", data.critics_results ? data.critics_results.length : 0],
     ["Critics Score", formatScore(data.critics_score)],
     ["Elapsed", formatSeconds(data.total_elapsed_time_program)],
+    ["Attempts", data.generation_attempt_count || 1],
     ["C File", data.generated_file_path || "n/a"],
     ["Header", data.generated_header_path || "n/a"],
     ["ACSL", data.generated_acsl_path || "n/a"],
@@ -171,6 +172,9 @@ function renderCriticsSummary(data) {
           ${metrics.warnings != null ? `<div class="muted">warnings: ${metrics.warnings}</div>` : ""}
           ${metrics.compiled_output_path ? `<div class="muted">output: ${escapeHtml(metrics.compiled_output_path)}</div>` : ""}
           ${metrics.goals_ratio ? `<div class="muted">goals: ${escapeHtml(metrics.goals_ratio)}</div>` : ""}
+          ${metrics.peak_heap_bytes != null ? `<div class="muted">peak heap usage: ${escapeHtml(metrics.peak_heap_bytes)} bytes</div>` : ""}
+          ${metrics.peak_stack_bytes != null ? `<div class="muted">peak stack usage: ${escapeHtml(metrics.peak_stack_bytes)} bytes</div>` : ""}
+          ${metrics.peak_total_bytes != null ? `<div class="muted">peak total usage: ${escapeHtml(metrics.peak_total_bytes)} bytes</div>` : ""}
           ${native.preprocessed_acsl_path ? `<div class="muted">pp acsl: ${escapeHtml(native.preprocessed_acsl_path)}</div>` : ""}
         </div>
       `;

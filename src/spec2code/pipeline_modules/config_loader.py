@@ -165,16 +165,6 @@ def _find_header_by_name(headers_items: List[Dict[str, str]], filename: str) -> 
     return None
 
 
-def _extract_type_defs_concat(headers_items: List[Dict[str, str]]) -> str:
-    parts: List[str] = []
-    for item in headers_items:
-        fn = str(item.get("filename", "header.h"))
-        content = str(item.get("content", ""))
-        if content.strip():
-            parts.append(f"/* === BEGIN {fn} === */\n{content}\n/* === END {fn} === */\n")
-    return "\n".join(parts).strip()
-
-
 def _pick_types_header_filename(headers_items: List[Dict[str, str]]) -> str:
     fns = [str(it.get("filename", "")) for it in headers_items]
     if "defined_types.h" in fns:
@@ -188,15 +178,21 @@ def _pick_types_header_filename(headers_items: List[Dict[str, str]]) -> str:
 class PreparedCaseStudyInputs:
     input_natural_language_specification: str
     input_interface: str
-    input_type_definitions: str
 
     input_headers: List[Dict[str, str]]
-    input_headers_json: str
     input_types_header_filename: str
 
     headers_dir: str
-    module_state_header_filename: Optional[str]
-    module_state_header_content: Optional[str]
+
+    @property
+    def module_state_header_filename(self) -> Optional[str]:
+        header = _find_header_by_name(self.input_headers, "module_state_and_constants.h")
+        return str(header["filename"]) if header else None
+
+    @property
+    def module_state_header_content(self) -> Optional[str]:
+        header = _find_header_by_name(self.input_headers, "module_state_and_constants.h")
+        return str(header.get("content", "")) if header else None
 
 
 @dataclass(frozen=True)
@@ -209,6 +205,7 @@ class PreparedConfig:
     selected_prompt_template: str
     llms_used: List[str]
     n_programs_generated: int
+    max_generation_iterations: int
     output_folder: str
     natural_spec_path: str
     interface_path: str
@@ -235,6 +232,8 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
     selected_prompt_template = _require_str(cfg, "selected_prompt_template")
     llms_used = _require_list_str(cfg, "llms_used")
     n_programs_generated = _require_int(cfg, "n_programs_generated")
+
+    max_generation_iterations = int(cfg.get("max_generation_iterations", 0))
 
     output_folder = _abspath(base_dir, _require_str(cfg, "output_folder"))
 
@@ -267,6 +266,34 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
             )
         critic_options[critic_name] = dict(options)
 
+    compile_opts = dict(critic_options.get("compile", {}))
+
+    test_harness_path = _optional_path(cfg, "test_harness_path", base_dir)
+    if not test_harness_path:
+        raw_compile_harness = compile_opts.get("test_harness_path")
+        if raw_compile_harness is not None:
+            if not isinstance(raw_compile_harness, str) or not raw_compile_harness.strip():
+                raise ValueError(
+                    "Config error: 'critic_options[compile][test_harness_path]' "
+                    "must be a non-empty string if present."
+                )
+            test_harness_path = _abspath(base_dir, raw_compile_harness.strip())
+    if test_harness_path:
+        _require_file(test_harness_path, "test_harness_path")
+        compile_opts["test_harness_path"] = test_harness_path
+
+    test_harness_source_name = cfg.get(
+        "test_harness_source_name",
+        compile_opts.get("test_harness_source_name"),
+    )
+    if test_harness_source_name is not None:
+        if not isinstance(test_harness_source_name, str) or not test_harness_source_name.strip():
+            raise ValueError("Config error: 'test_harness_source_name' must be a non-empty string if present.")
+        compile_opts["test_harness_source_name"] = test_harness_source_name.strip()
+
+    if compile_opts:
+        critic_options["compile"] = compile_opts
+
     # Backward compatibility for legacy Frama-C specific keys.
     if "framac_wp_timeout_s" in cfg:
         framac_wp_timeout_s = _optional_int(cfg, "framac_wp_timeout_s", 2)
@@ -278,6 +305,11 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         framac_wp_no_let = _optional_bool(cfg, "framac_wp_no_let", False)
         if framac_wp_no_let:
             critic_context.setdefault("framac_wp_no_let", True)
+
+    if "framac_wp_no_split_switch" in cfg:
+        framac_wp_no_split_switch = _optional_bool(cfg, "framac_wp_no_split_switch", False)
+        if framac_wp_no_split_switch:
+            critic_context.setdefault("framac_wp_no_split_switch", True)
 
     # Frama-C verification header can be provided directly in critic_options.
     framac_opts = dict(critic_options.get("framac-wp", {}))
@@ -311,22 +343,13 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
 
     # Headers: ONLY manifest ones; each must exist
     headers_items = _load_headers_from_manifest(headers_dir, headers_manifest)
-    headers_json = json.dumps(headers_items)
-
-    module_state_header = _find_header_by_name(headers_items, "module_state_and_constants.h")
-    module_state_header_filename = module_state_header["filename"] if module_state_header else None
-    module_state_header_content = module_state_header.get("content") if module_state_header else None
 
     prepared_inputs = PreparedCaseStudyInputs(
         input_natural_language_specification=_read_text_file(natural_spec_path),
         input_interface=_read_text_file(interface_path),
-        input_type_definitions=_extract_type_defs_concat(headers_items),
         input_headers=headers_items,
-        input_headers_json=headers_json,
         input_types_header_filename=_pick_types_header_filename(headers_items),
         headers_dir=headers_dir,
-        module_state_header_filename=module_state_header_filename,
-        module_state_header_content=module_state_header_content,
     )
 
     if not prepared_inputs.input_natural_language_specification.strip():
@@ -335,11 +358,10 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         raise ValueError(f"Config error: interface file is empty: {interface_path}")
 
     # Build prompt inputs dict for format_prompt
-    prompt_inputs: Dict[str, str] = {
+    prompt_inputs: Dict[str, Any] = {
         "input_natural_language_specification": prepared_inputs.input_natural_language_specification,
         "input_interface": prepared_inputs.input_interface,
-        "input_type_definitions": prepared_inputs.input_type_definitions,
-        "input_headers_json": prepared_inputs.input_headers_json,
+        "input_headers": prepared_inputs.input_headers,
         "input_types_header_filename": prepared_inputs.input_types_header_filename,
     }
     filled_prompt = format_prompt(selected_prompt_template, prompt_inputs)
@@ -360,6 +382,7 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         selected_prompt_template=selected_prompt_template,
         llms_used=llms_used,
         n_programs_generated=n_programs_generated,
+        max_generation_iterations=max_generation_iterations,
         output_folder=output_folder,
         natural_spec_path=natural_spec_path,
         interface_path=interface_path,

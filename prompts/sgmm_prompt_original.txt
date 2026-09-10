@@ -7,7 +7,7 @@ Definitions:
   - "filename": header file name (e.g., "scania_types.h", "rtdb.h")
   - "provides": short description of what it declares/defines
   - "content": the full header text
-- input_type_definitions: required custom C types/macros content that must be used exactly as provided (typically coming from a types header in input_headers).
+- input_types_header_filename: the primary project types header within input_headers.
 
 Task:
 Generate BOTH:
@@ -35,8 +35,8 @@ C file requirements:
 5) Do NOT write any ACSL in the .c.
 
 6) Type discipline (MANDATORY):
-   - You MUST use the types/macros from input_type_definitions exactly as provided.
-   - You MUST NOT redefine any types/macros already present in input_type_definitions.
+   - You MUST use the types/macros from input_headers exactly as provided.
+   - You MUST NOT redefine any types/macros already present in input_headers.
 
 7) Storage and scope discipline (MANDATORY):
     - Temporary working state MUST be function-local, not global.
@@ -55,7 +55,7 @@ C file requirements:
    - Only include headers that are present in input_headers (plus standard headers if truly necessary).
 
 9) Configuration macro discipline (CRITICAL):
-    - Any macro used in the .c that is not defined in input_type_definitions MUST be provided by exactly one included header from input_headers.
+    - Any project macro used in the .c MUST be provided by exactly one included header from input_headers.
     - In particular, if the .c references any project-specific macro prefix, you MUST include the header from input_headers that defines it.
    - Never use an undefined macro. If you cannot locate a defining header in input_headers, you MUST NOT reference that macro and MUST implement the logic without it.
 
@@ -75,7 +75,7 @@ C file requirements:
 11) Includes:
    - The .c MUST include the generated header: #include "<same_basename>.h"
    - Additionally include needed headers from input_headers for every referenced external function/type/macro.
-   - After selecting includes, re-check that every referenced macro identifier is defined by either input_type_definitions or the selected includes.
+   - After selecting includes, re-check that every referenced macro identifier is defined by the selected includes.
 
 12) Follow input_interface constraints and non-functional rules (MISRA, power-of-ten, custom rules).
 
@@ -96,7 +96,7 @@ A) List all identifiers used in expressions that are:
    - macros (e.g., ALL_CAPS names), or
    - externally-defined functions, or
    - externally-defined variables.
-   For each such identifier, verify that it is provided by either input_type_definitions or by one of the selected #include files from input_headers.
+   For each such identifier, verify that it is provided by one of the selected #include files from input_headers.
 B) If any identifier fails this check, you MUST change the code or includes until the check passes.
 C) Do not output the checklist. It is only a requirement for you to satisfy internally.
 
