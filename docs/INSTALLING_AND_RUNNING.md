@@ -41,7 +41,7 @@ PYTHONPATH=src python3 -m spec2code.cli.run_pipeline --config config/gui_templat
 ### 4) Run GUI
 
 ```bash
-docker run --rm -it -p 8080:8080 -v "$(pwd)":/workspace spec2code:local bash
+docker run --rm -it -p 127.0.0.1:8080:8080 -v "$(pwd)":/workspace spec2code:local bash
 cd /workspace
 PYTHONPATH=src python -m spec2code.gui.run_server --host 0.0.0.0 --port 8080
 ```
@@ -49,6 +49,7 @@ PYTHONPATH=src python -m spec2code.gui.run_server --host 0.0.0.0 --port 8080
 Open:
 
 - `http://127.0.0.1:8080/runner`
+- `http://127.0.0.1:8080/settings`
 - `http://127.0.0.1:8080/results`
 
 ## Local Python (Optional)

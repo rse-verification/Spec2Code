@@ -65,3 +65,20 @@ def test_run_command_drains_large_output_without_timing_out():
     assert len(stdout) == 200000
     assert stderr == ""
     assert timing.get("real", 0.0) >= 0.0
+
+
+@pytest.mark.unit
+def test_run_command_streams_output_while_retaining_it(capsys):
+    stdout, stderr, completed, exit_code, _timing = subprocess_creator.run_command(
+        f'{_PYTHON} -c "import sys; print(\'out\'); print(\'err\', file=sys.stderr)"',
+        timeout=5,
+        stream=True,
+    )
+
+    captured = capsys.readouterr()
+    assert completed is True
+    assert exit_code == 0
+    assert stdout == "out\n"
+    assert stderr == "err\n"
+    assert "out\n" in captured.out
+    assert "err\n" in captured.out

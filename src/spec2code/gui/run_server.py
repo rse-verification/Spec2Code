@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import base64
 import copy
+import hashlib
 import json
 import os
 import re
@@ -26,6 +27,7 @@ from spec2code.pipeline_modules.critics.critics_registry import (
     GUI_CRITICS_CATALOG,
 )
 from spec2code.pipeline_modules.critics.critics_runner import build_critics_from_names, run_critics_on_artifacts
+from spec2code.gui.settings_store import SettingsStore
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GUI_DIR = Path(__file__).resolve().parent
@@ -48,16 +50,20 @@ ALLOWED_RUNTIME_ENV_KEYS = {
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
+    "OLLAMA_API_KEY",
+    "OLLAMA_BASE_URL",
+    "VLLM_API_KEY",
+    "VLLM_BASE_URL",
     "SPEC2CODE_INPUT_ROOT",
     "SPEC2CODE_CASE_STUDIES_ROOT",
 }
 
-GUI_SESSION_ENV_OVERRIDES: dict[str, str] = {}
+SETTINGS_STORE = SettingsStore()
 _MODELS_CACHE_LOCK = threading.Lock()
 _MODELS_CACHE: dict[str, Any] = {
     "by_key": {},
-    "last_key": "",
 }
+MODELS_CACHE_TTL_S = 60.0
 
 _RUN_JOBS_LOCK = threading.Lock()
 _RUN_JOBS: dict[str, dict[str, Any]] = {}
@@ -67,14 +73,21 @@ MOCK_MODELS = [
 ]
 
 
-def _current_input_root() -> Path:
-    raw = GUI_SESSION_ENV_OVERRIDES.get("SPEC2CODE_INPUT_ROOT") or str(INPUT_ROOT_DEFAULT)
-    return Path(raw).resolve()
+def _settings_root(raw: str, default: Path) -> Path:
+    path = Path(raw or str(default)).expanduser()
+    if not path.is_absolute():
+        path = REPO_ROOT / path
+    return path.resolve()
 
 
-def _current_case_studies_root() -> Path:
-    raw = GUI_SESSION_ENV_OVERRIDES.get("SPEC2CODE_CASE_STUDIES_ROOT") or str(CASE_STUDIES_ROOT_DEFAULT)
-    return Path(raw).resolve()
+def _current_input_root(runtime_env: dict[str, str] | None = None) -> Path:
+    env = runtime_env or _effective_runtime_env()
+    return _settings_root(env.get("SPEC2CODE_INPUT_ROOT", ""), INPUT_ROOT_DEFAULT)
+
+
+def _current_case_studies_root(runtime_env: dict[str, str] | None = None) -> Path:
+    env = runtime_env or _effective_runtime_env()
+    return _settings_root(env.get("SPEC2CODE_CASE_STUDIES_ROOT", ""), CASE_STUDIES_ROOT_DEFAULT)
 
 
 def _parse_why3_solvers(output: str) -> list[str]:
@@ -167,7 +180,12 @@ def _write_latest_verify_report(payload: dict[str, Any]) -> None:
     p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def _resolve_runtime_path(path: str, *, base_dir: Path | None = None) -> Path:
+def _resolve_runtime_path(
+    path: str,
+    *,
+    base_dir: Path | None = None,
+    runtime_env: dict[str, str] | None = None,
+) -> Path:
     raw = str(path or "").strip()
     if not raw:
         return Path("")
@@ -182,7 +200,7 @@ def _resolve_runtime_path(path: str, *, base_dir: Path | None = None) -> Path:
         if repo_candidate.exists():
             return repo_candidate
         suffix = normalized.split("/", 1)[1]
-        return (_current_case_studies_root() / suffix).resolve()
+        return (_current_case_studies_root(runtime_env) / suffix).resolve()
 
     if normalized.startswith("output/"):
         repo_candidate = (REPO_ROOT / raw).resolve()
@@ -196,7 +214,7 @@ def _resolve_runtime_path(path: str, *, base_dir: Path | None = None) -> Path:
         if repo_candidate.exists():
             return repo_candidate
         suffix = normalized.split("/", 1)[1]
-        return (_current_input_root() / suffix).resolve()
+        return (_current_input_root(runtime_env) / suffix).resolve()
 
     if base_dir is not None:
         is_gui_tmp_base = False
@@ -210,13 +228,13 @@ def _resolve_runtime_path(path: str, *, base_dir: Path | None = None) -> Path:
             norm_slash = normalized.replace("\\", "/")
             if norm_slash.startswith("../case_studies/") or norm_slash.startswith("./case_studies/"):
                 suffix = norm_slash.split("case_studies/", 1)[1]
-                return (_current_case_studies_root() / suffix).resolve()
+                return (_current_case_studies_root(runtime_env) / suffix).resolve()
             if norm_slash.startswith("../output/") or norm_slash.startswith("./output/"):
                 suffix = norm_slash.split("output/", 1)[1]
                 return (OUTPUT_ROOT / suffix).resolve()
             if norm_slash.startswith("../input/") or norm_slash.startswith("./input/"):
                 suffix = norm_slash.split("input/", 1)[1]
-                return (_current_input_root() / suffix).resolve()
+                return (_current_input_root(runtime_env) / suffix).resolve()
 
     if base_dir is not None and (
         normalized.startswith("../")
@@ -258,6 +276,7 @@ def _json_response(handler: BaseHTTPRequestHandler, payload: dict[str, Any], sta
         handler.send_response(status)
         handler.send_header("Content-Type", "application/json; charset=utf-8")
         handler.send_header("Content-Length", str(len(body)))
+        handler.send_header("Cache-Control", "no-store")
         handler.end_headers()
         handler.wfile.write(body)
     except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
@@ -393,13 +412,68 @@ def _list_models() -> list[str]:
 
 
 def _default_gui_models() -> list[str]:
-    return sorted(MOCK_MODELS)
+    return []
+
+
+def _model_provider_id(name: str) -> str:
+    if name in MOCK_MODELS:
+        return "mock"
+    if name.startswith(("bedrock/", "bedrock-profile/", "bedrock:")):
+        return "aws_bedrock"
+
+    providers, specs = llms.available_provider_specs()
+    spec = specs.get(name, {})
+    key_env = str(spec.get("key_env", ""))
+    if key_env == "ANTHROPIC_API_KEY":
+        return "anthropic"
+    if key_env == "OPENAI_API_KEY":
+        return "openai"
+
+    provider_name = str(spec.get("provider", ""))
+    provider_spec = providers.get(provider_name, {}) if provider_name else {}
+    provider_type = str(provider_spec.get("type", ""))
+    if provider_type == "bedrock":
+        return "aws_bedrock"
+    if provider_type == "ollama" or "ollama" in provider_name.lower():
+        return "ollama"
+    if "vllm" in provider_name.lower() or "vllm" in name.lower():
+        return "vllm"
+    if str(provider_spec.get("api_key_env", "")) == "OPENAI_API_KEY":
+        return "openai"
+    return provider_name or "other"
+
+
+def _group_models(ready_models: list[str], unavailable: dict[str, str]) -> list[dict[str, Any]]:
+    labels = {
+        "openai": "OpenAI",
+        "anthropic": "Anthropic",
+        "aws_bedrock": "AWS Bedrock",
+        "ollama": "Ollama",
+        "vllm": "vLLM",
+        "mock": "Test models",
+        "other": "Other",
+    }
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    ready_set = set(ready_models)
+    for name in sorted(ready_set | set(unavailable)):
+        provider_id = _model_provider_id(name)
+        grouped.setdefault(provider_id, []).append({
+            "name": name,
+            "ready": name in ready_set,
+            "reason": unavailable.get(name),
+        })
+
+    order = ["openai", "anthropic", "aws_bedrock", "ollama", "vllm", "mock", "other"]
+    provider_ids = sorted(grouped, key=lambda item: (order.index(item) if item in order else len(order), item))
+    return [
+        {"id": provider_id, "label": labels.get(provider_id, provider_id.replace("_", " ").title()), "models": grouped[provider_id]}
+        for provider_id in provider_ids
+    ]
 
 
 def _invalidate_models_cache() -> None:
     with _MODELS_CACHE_LOCK:
         _MODELS_CACHE["by_key"] = {}
-        _MODELS_CACHE["last_key"] = ""
     try:
         MODELS_CACHE_FILE.unlink(missing_ok=True)
     except Exception:
@@ -407,36 +481,26 @@ def _invalidate_models_cache() -> None:
 
 
 def _models_cache_key(env: dict[str, str]) -> str:
-    # Do not persist raw secrets in cache keys.
+    def fingerprint(name: str) -> str:
+        value = str(env.get(name, ""))
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()[:16] if value else ""
+
+    # Cache is memory-only; fingerprints isolate credentials without retaining them.
     relevant_env = {
         "AWS_PROFILE": str(env.get("AWS_PROFILE", "")),
         "AWS_REGION": str(env.get("AWS_REGION", "") or env.get("AWS_DEFAULT_REGION", "")),
-        "HAS_ANTHROPIC_KEY": bool(str(env.get("ANTHROPIC_API_KEY", "")).strip()),
-        "HAS_OPENAI_KEY": bool(str(env.get("OPENAI_API_KEY", "")).strip()),
-        "HAS_AWS_KEYPAIR": bool(str(env.get("AWS_ACCESS_KEY_ID", "")).strip() and str(env.get("AWS_SECRET_ACCESS_KEY", "")).strip()),
+        "ANTHROPIC_KEY": fingerprint("ANTHROPIC_API_KEY"),
+        "OPENAI_KEY": fingerprint("OPENAI_API_KEY"),
+        "AWS_ACCESS_KEY": fingerprint("AWS_ACCESS_KEY_ID"),
+        "AWS_SECRET_KEY": fingerprint("AWS_SECRET_ACCESS_KEY"),
+        "AWS_SESSION_TOKEN": fingerprint("AWS_SESSION_TOKEN"),
+        "OLLAMA_BASE_URL": str(env.get("OLLAMA_BASE_URL", "")),
+        "OLLAMA_KEY": fingerprint("OLLAMA_API_KEY"),
+        "VLLM_BASE_URL": str(env.get("VLLM_BASE_URL", "")),
+        "VLLM_KEY": fingerprint("VLLM_API_KEY"),
     }
     fetch_flag = str(os.getenv("SPEC2CODE_GUI_FETCH_BEDROCK", "1"))
     return json.dumps({"env": relevant_env, "fetch_bedrock": fetch_flag}, sort_keys=True)
-
-
-def _load_models_cache_from_disk() -> dict[str, Any]:
-    if not MODELS_CACHE_FILE.is_file():
-        return {"by_key": {}, "last_key": ""}
-    try:
-        raw = json.loads(MODELS_CACHE_FILE.read_text(encoding="utf-8"))
-        by_key = dict(raw.get("by_key") or {})
-        last_key = str(raw.get("last_key") or "")
-        return {"by_key": by_key, "last_key": last_key}
-    except Exception:
-        return {"by_key": {}, "last_key": ""}
-
-
-def _save_models_cache_to_disk(payload: dict[str, Any]) -> None:
-    try:
-        GUI_TMP_DIR.mkdir(parents=True, exist_ok=True)
-        MODELS_CACHE_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def _compute_models_payload(env: dict[str, str]) -> dict[str, Any]:
@@ -452,21 +516,21 @@ def _compute_models_payload(env: dict[str, str]) -> dict[str, Any]:
         bedrock_models = [m for m in bedrock_models if str(m).startswith("bedrock-profile/")]
     all_models.update(bedrock_models)
 
-    notes = ["Model list includes credential-ready providers and discovered Bedrock entries."]
+    notes: list[str] = []
     if bedrock_models:
         notes.append(f"Detected {len(bedrock_models)} Bedrock model(s) from AWS.")
     if has_profiles:
         notes.append("Using Bedrock inference profiles; hidden raw bedrock/<modelId> entries to prevent on-demand invocation errors.")
     if bedrock_note:
-        notes.append(bedrock_note)
+        notes.append("Bedrock is unavailable. Update AWS settings and refresh models.")
     if unavailable:
-        notes.append(
-            f"Hidden {len(unavailable)} model(s) due to missing credentials/provider setup."
-        )
+        notes.append(f"{len(unavailable)} model(s) need provider setup.")
 
     return {
         "models": default_models,
         "all_models": sorted(all_models),
+        "providers": _group_models(sorted(all_models), unavailable),
+        "unavailable_models": unavailable,
         "note": " ".join(notes),
     }
 
@@ -475,33 +539,19 @@ def _models_payload_cached(env: dict[str, str], *, force_refresh: bool = False) 
     key = _models_cache_key(env)
     with _MODELS_CACHE_LOCK:
         by_key = dict(_MODELS_CACHE.get("by_key") or {})
-        last_key = str(_MODELS_CACHE.get("last_key") or "")
-
-    if not by_key:
-        disk_cache = _load_models_cache_from_disk()
-        by_key = dict(disk_cache.get("by_key") or {})
-        last_key = str(disk_cache.get("last_key") or "")
-        with _MODELS_CACHE_LOCK:
-            _MODELS_CACHE["by_key"] = by_key
-            _MODELS_CACHE["last_key"] = last_key
 
     if not force_refresh:
-        cached_payload = by_key.get(key)
-        if cached_payload is None and last_key:
-            cached_payload = by_key.get(last_key)
-        if cached_payload is not None:
-            cached = dict(cached_payload or {})
+        entry = by_key.get(key)
+        if isinstance(entry, dict) and time.time() - float(entry.get("cached_at", 0.0)) < MODELS_CACHE_TTL_S:
+            cached = dict(entry.get("payload") or {})
             note = str(cached.get("note") or "").strip()
             cached["note"] = (note + " ").strip() + "Model list served from cache."
             return cached
 
     payload = _compute_models_payload(env)
-    by_key[key] = payload
-    last_key = key
+    by_key[key] = {"cached_at": time.time(), "payload": payload}
     with _MODELS_CACHE_LOCK:
         _MODELS_CACHE["by_key"] = by_key
-        _MODELS_CACHE["last_key"] = last_key
-    _save_models_cache_to_disk({"by_key": by_key, "last_key": last_key})
     return dict(payload)
 
 
@@ -518,15 +568,189 @@ def _sanitize_env_overrides(payload: Any) -> dict[str, str]:
     return out
 
 
+def _validate_selected_models(model_names: list[str], runtime_env: dict[str, str] | None = None) -> str | None:
+    payload = _models_payload_cached(runtime_env or _effective_runtime_env())
+    available = set(payload.get("all_models") or [])
+    unavailable = payload.get("unavailable_models") or {}
+    invalid = [name for name in model_names if name not in available]
+    if not invalid:
+        return None
+    details = [f"{name}: {unavailable.get(name, 'not configured or unknown')}" for name in invalid]
+    return "Unavailable model selection. " + "; ".join(details)
+
+
 def _effective_runtime_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
     env.setdefault("SPEC2CODE_OUTPUT_ROOT", str(OUTPUT_ROOT))
-    env.setdefault("SPEC2CODE_INPUT_ROOT", str(_current_input_root()))
-    env.setdefault("SPEC2CODE_CASE_STUDIES_ROOT", str(_current_case_studies_root()))
-    env.update(GUI_SESSION_ENV_OVERRIDES)
+    env.setdefault("SPEC2CODE_INPUT_ROOT", str(INPUT_ROOT_DEFAULT))
+    env.setdefault("SPEC2CODE_CASE_STUDIES_ROOT", str(CASE_STUDIES_ROOT_DEFAULT))
+    env = dict(SETTINGS_STORE.env_snapshot(env))
     if extra:
         env.update(extra)
     return env
+
+
+_SETTINGS_NONSECRET_PATHS = {
+    ("providers", "aws_bedrock", "profile"): "aws_profile",
+    ("providers", "aws_bedrock", "region"): "aws_region",
+    ("providers", "ollama", "base_url"): "ollama_base_url",
+    ("providers", "vllm", "base_url"): "vllm_base_url",
+}
+
+_SETTINGS_SECRET_PATHS = {
+    ("providers", "openai", "api_key"): "openai_api_key",
+    ("providers", "anthropic", "api_key"): "anthropic_api_key",
+    ("providers", "aws_bedrock", "access_key_id"): "aws_access_key_id",
+    ("providers", "aws_bedrock", "secret_access_key"): "aws_secret_access_key",
+    ("providers", "aws_bedrock", "session_token"): "aws_session_token",
+    ("providers", "ollama", "api_key"): "ollama_api_key",
+    ("providers", "vllm", "api_key"): "vllm_api_key",
+}
+
+
+def _nested_value(payload: dict[str, Any], path: tuple[str, ...]) -> Any:
+    value: Any = payload
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _settings_updates(payload: dict[str, Any]) -> tuple[dict[str, str | None], dict[str, str], list[str]]:
+    nonsecrets: dict[str, str | None] = {}
+    secrets: dict[str, str] = {}
+    clear_secrets: list[str] = []
+
+    for path, setting_name in _SETTINGS_NONSECRET_PATHS.items():
+        value = _nested_value(payload, path)
+        if value is not None:
+            nonsecrets[setting_name] = str(value).strip() or None
+
+    for path, setting_name in _SETTINGS_SECRET_PATHS.items():
+        provider_payload = _nested_value(payload, path[:-1])
+        if not isinstance(provider_payload, dict):
+            continue
+        value = provider_payload.get(path[-1])
+        if value is not None and str(value):
+            secrets[setting_name] = str(value)
+        if bool(provider_payload.get(f"clear_{path[-1]}", False)):
+            clear_secrets.append(setting_name)
+
+    return nonsecrets, secrets, clear_secrets
+
+
+def _settings_api_payload() -> dict[str, Any]:
+    values = SETTINGS_STORE.read()
+
+    def value(name: str, default: str = "") -> str:
+        item = values.get(name, {})
+        raw = item.get("value") if isinstance(item, dict) else None
+        return str(raw) if raw is not None else default
+
+    def configured(name: str) -> bool:
+        item = values.get(name, {})
+        return bool(item.get("configured")) if isinstance(item, dict) else False
+
+    def source(name: str) -> str:
+        item = values.get(name, {})
+        return str(item.get("source", "unset")) if isinstance(item, dict) else "unset"
+
+    return {
+        "providers": {
+            "openai": {
+                "ready": configured("openai_api_key"),
+                "configured": configured("openai_api_key"),
+                "configured_secrets": {"api_key": configured("openai_api_key")},
+                "secret_sources": {"api_key": source("openai_api_key")},
+            },
+            "anthropic": {
+                "ready": configured("anthropic_api_key"),
+                "configured": configured("anthropic_api_key"),
+                "configured_secrets": {"api_key": configured("anthropic_api_key")},
+                "secret_sources": {"api_key": source("anthropic_api_key")},
+            },
+            "aws_bedrock": {
+                "profile": value("aws_profile"),
+                "region": value("aws_region", "eu-west-1"),
+                "ready": bool(value("aws_profile")) or (
+                    configured("aws_access_key_id") and configured("aws_secret_access_key")
+                ),
+                "configured": source("aws_profile") != "unset" or configured("aws_access_key_id"),
+                "configured_secrets": {
+                    "access_key_id": configured("aws_access_key_id"),
+                    "secret_access_key": configured("aws_secret_access_key"),
+                    "session_token": configured("aws_session_token"),
+                },
+            },
+            "ollama": {
+                "ready": True,
+                "configured": source("ollama_base_url") != "unset" or configured("ollama_api_key"),
+                "base_url": value("ollama_base_url", "http://localhost:11434/v1"),
+                "configured_secrets": {"api_key": configured("ollama_api_key")},
+            },
+            "vllm": {
+                "ready": True,
+                "configured": source("vllm_base_url") != "unset" or configured("vllm_api_key"),
+                "base_url": value("vllm_base_url", "http://localhost:8000/v1"),
+                "configured_secrets": {"api_key": configured("vllm_api_key")},
+            },
+        },
+    }
+
+
+def _redact_error(exc: Exception, env: dict[str, str]) -> str:
+    message = str(exc) or exc.__class__.__name__
+    for key in ALLOWED_RUNTIME_ENV_KEYS:
+        secret = str(env.get(key, ""))
+        if secret and ("KEY" in key or "TOKEN" in key):
+            message = message.replace(secret, "***")
+    return message[:300]
+
+
+def _test_provider_connection(provider_id: str) -> dict[str, Any]:
+    provider_id = str(provider_id or "").strip()
+    env = _effective_runtime_env()
+
+    try:
+        if provider_id == "aws_bedrock":
+            models, note = _list_bedrock_models(env, timeout_s=10)
+            if not models:
+                raise RuntimeError(note or "No Bedrock models were returned.")
+            return {"ok": True, "message": f"Connected. Found {len(models)} Bedrock model(s)."}
+        if provider_id == "openai":
+            key = env.get("OPENAI_API_KEY")
+            if not key:
+                raise RuntimeError("OpenAI API key is not configured.")
+            client = llms.OpenAI(
+                api_key=key,
+                base_url="https://api.openai.com/v1",
+                timeout=10.0,
+                max_retries=0,
+            )
+            client.models.list()
+        elif provider_id == "anthropic":
+            key = env.get("ANTHROPIC_API_KEY")
+            if not key:
+                raise RuntimeError("Anthropic API key is not configured.")
+            from anthropic import Anthropic
+
+            Anthropic(api_key=key, timeout=10.0, max_retries=0).models.list(limit=1)
+        elif provider_id in {"ollama", "vllm"}:
+            prefix = "OLLAMA" if provider_id == "ollama" else "VLLM"
+            default_url = "http://localhost:11434/v1" if provider_id == "ollama" else "http://localhost:8000/v1"
+            client = llms.OpenAI(
+                api_key=env.get(f"{prefix}_API_KEY") or "not-required",
+                base_url=env.get(f"{prefix}_BASE_URL") or default_url,
+                timeout=10.0,
+                max_retries=0,
+            )
+            client.models.list()
+        else:
+            return {"ok": False, "error": f"Unknown provider: {provider_id}"}
+    except Exception as exc:
+        return {"ok": False, "error": _redact_error(exc, env)}
+    return {"ok": True, "message": "Connection successful."}
 
 
 def _has_aws_credentials(env: dict[str, str]) -> bool:
@@ -560,7 +784,7 @@ def _provider_ready(provider_spec: dict[str, Any], env: dict[str, str]) -> tuple
 def _credential_ready_models(env: dict[str, str]) -> tuple[list[str], dict[str, str]]:
     available: list[str] = []
     unavailable: dict[str, str] = {}
-    providers, specs = llms._available_specs()  # type: ignore[attr-defined]
+    providers, specs = llms.available_provider_specs()
 
     for name in _list_models():
         if name in MOCK_MODELS:
@@ -642,7 +866,7 @@ def _extract_bedrock_inference_profile_names(payload: dict[str, Any]) -> list[st
     return sorted(out)
 
 
-def _list_bedrock_models(env: dict[str, str]) -> tuple[list[str], str | None]:
+def _list_bedrock_models(env: dict[str, str], *, timeout_s: int | None = None) -> tuple[list[str], str | None]:
     fetch_enabled = str(os.getenv("SPEC2CODE_GUI_FETCH_BEDROCK", "1")).strip().lower() not in {"0", "false", "no"}
     if not fetch_enabled:
         return [], None
@@ -655,16 +879,26 @@ def _list_bedrock_models(env: dict[str, str]) -> tuple[list[str], str | None]:
         session_kwargs: dict[str, Any] = {"region_name": region}
         if profile:
             session_kwargs["profile_name"] = profile
-        access_key = env.get("AWS_ACCESS_KEY_ID")
-        secret_key = env.get("AWS_SECRET_ACCESS_KEY")
-        session_token = env.get("AWS_SESSION_TOKEN")
-        if access_key and secret_key:
-            session_kwargs["aws_access_key_id"] = access_key
-            session_kwargs["aws_secret_access_key"] = secret_key
-            if session_token:
-                session_kwargs["aws_session_token"] = session_token
+        else:
+            access_key = env.get("AWS_ACCESS_KEY_ID")
+            secret_key = env.get("AWS_SECRET_ACCESS_KEY")
+            session_token = env.get("AWS_SESSION_TOKEN")
+            if access_key and secret_key:
+                session_kwargs["aws_access_key_id"] = access_key
+                session_kwargs["aws_secret_access_key"] = secret_key
+                if session_token:
+                    session_kwargs["aws_session_token"] = session_token
         session = boto3.Session(**session_kwargs)
-        client = session.client("bedrock", region_name=region)
+        client_kwargs: dict[str, Any] = {"region_name": region}
+        if timeout_s is not None:
+            from botocore.config import Config
+
+            client_kwargs["config"] = Config(
+                connect_timeout=timeout_s,
+                read_timeout=timeout_s,
+                retries={"max_attempts": 1},
+            )
+        client = session.client("bedrock", **client_kwargs)
 
         profile_payload: dict[str, Any] = {"inferenceProfileSummaries": []}
         next_token = None
@@ -690,11 +924,9 @@ def _list_bedrock_models(env: dict[str, str]) -> tuple[list[str], str | None]:
             return [], "AWS reachable, but no Bedrock text models/profiles were returned."
         return names, "No Bedrock inference profiles found; showing foundation model IDs as fallback."
     except Exception as exc:
-        msg = str(exc) or exc.__class__.__name__
         return [], (
             "Bedrock models unavailable (credentials/session not ready). "
-            "Run `aws sso login --profile <your-profile>` and export AWS_PROFILE/AWS_REGION. "
-            f"Details: {msg}"
+            "Run `aws sso login --profile <your-profile>` and refresh models."
         )
 
 
@@ -714,10 +946,15 @@ def _is_safe_path_under(path: Path, root: Path) -> bool:
         return False
 
 
-def _is_safe_runtime_path(path: Path) -> bool:
+def _is_safe_runtime_path(path: Path, runtime_env: dict[str, str] | None = None) -> bool:
     return any(
         _is_safe_path_under(path, root)
-        for root in (REPO_ROOT, OUTPUT_ROOT, _current_input_root(), _current_case_studies_root())
+        for root in (
+            REPO_ROOT,
+            OUTPUT_ROOT,
+            _current_input_root(runtime_env),
+            _current_case_studies_root(runtime_env),
+        )
     )
 
 
@@ -781,13 +1018,19 @@ def _list_repo_entries(
     return out[:max_items]
 
 
-def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool = False) -> dict[str, Any]:
+def _run_pipeline_from_template(
+    payload: dict[str, Any],
+    *,
+    defer_execute: bool = False,
+    runtime_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    runtime_env = dict(runtime_env or _effective_runtime_env())
     template_rel = str(payload.get("template", "")).strip()
     if not template_rel:
         return {"ok": False, "error": "Missing 'template'."}
 
-    template_path = _resolve_runtime_path(template_rel, base_dir=REPO_ROOT)
-    if not _is_safe_runtime_path(template_path) or not template_path.is_file():
+    template_path = _resolve_runtime_path(template_rel, base_dir=REPO_ROOT, runtime_env=runtime_env)
+    if not _is_safe_runtime_path(template_path, runtime_env) or not template_path.is_file():
         return {"ok": False, "error": f"Invalid template path: {template_rel}"}
 
     raw_models = payload.get("models", [])
@@ -805,6 +1048,9 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
     selected_models = sorted(set(selected_models))
     if not selected_models:
         return {"ok": False, "error": "Select at least one model."}
+    model_error = _validate_selected_models(selected_models, runtime_env)
+    if model_error:
+        return {"ok": False, "error": model_error}
 
     try:
         n_programs = int(payload.get("n_programs_generated", 1))
@@ -832,7 +1078,7 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
         p = str(p).strip()
         if not p:
             return p
-        return os.path.normpath(str(_resolve_runtime_path(p, base_dir=template_base_dir)))
+        return os.path.normpath(str(_resolve_runtime_path(p, base_dir=template_base_dir, runtime_env=runtime_env)))
 
     for cfg in data:
         if not isinstance(cfg, dict):
@@ -894,8 +1140,7 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
         return {"ok": True, "config_path": str(tmp_path)}
 
     try:
-        env_overrides = _sanitize_env_overrides(payload.get("env_overrides", {}))
-        return _run_pipeline_with_config_path(tmp_path, env_overrides=env_overrides)
+        return _run_pipeline_with_config_path(tmp_path, runtime_env=runtime_env)
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
@@ -903,8 +1148,13 @@ def _run_pipeline_from_template(payload: dict[str, Any], *, defer_execute: bool 
             pass
 
 
-def _run_pipeline_with_config_path(config_path: Path, *, env_overrides: dict[str, str] | None = None) -> dict[str, Any]:
-    env = _effective_runtime_env(env_overrides)
+def _run_pipeline_with_config_path(
+    config_path: Path,
+    *,
+    env_overrides: dict[str, str] | None = None,
+    runtime_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    env = dict(runtime_env or _effective_runtime_env(env_overrides))
     py_path = env.get("PYTHONPATH", "")
     env["PYTHONPATH"] = f"src{os.pathsep}{py_path}" if py_path else "src"
 
@@ -949,8 +1199,14 @@ def _run_pipeline_with_config_path(config_path: Path, *, env_overrides: dict[str
     }
 
 
-def _start_pipeline_job(*, config_path: Path, env_overrides: dict[str, str] | None = None) -> str:
+def _start_pipeline_job(
+    *,
+    config_path: Path,
+    env_overrides: dict[str, str] | None = None,
+    runtime_env: dict[str, str] | None = None,
+) -> str:
     run_id = uuid.uuid4().hex
+    runtime_env = dict(runtime_env or _effective_runtime_env(env_overrides))
     with _RUN_JOBS_LOCK:
         _RUN_JOBS[run_id] = {
             "status": "running",
@@ -973,11 +1229,12 @@ def _start_pipeline_job(*, config_path: Path, env_overrides: dict[str, str] | No
             job[stream_key] = str(job.get(stream_key, "")) + text
 
     def _worker() -> None:
-        env = _effective_runtime_env(env_overrides)
+        env = dict(runtime_env)
         py_path = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"src{os.pathsep}{py_path}" if py_path else "src"
         cmd = [
             sys.executable,
+            "-u",
             "-m",
             "spec2code.cli.run_pipeline",
             "--config",
@@ -1070,7 +1327,13 @@ def _run_job_status(run_id: str) -> dict[str, Any]:
         }
 
 
-def _run_pipeline_from_custom(payload: dict[str, Any], *, defer_execute: bool = False) -> dict[str, Any]:
+def _run_pipeline_from_custom(
+    payload: dict[str, Any],
+    *,
+    defer_execute: bool = False,
+    runtime_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    runtime_env = dict(runtime_env or _effective_runtime_env())
     config_text = str(payload.get("config_json", ""))
     if not config_text.strip():
         return {"ok": False, "error": "Missing 'config_json'."}
@@ -1087,13 +1350,20 @@ def _run_pipeline_from_custom(payload: dict[str, Any], *, defer_execute: bool = 
         p = str(p).strip()
         if not p:
             return p
-        return os.path.normpath(str(_resolve_runtime_path(p)))
+        return os.path.normpath(str(_resolve_runtime_path(p, runtime_env=runtime_env)))
 
     # Normalize common path fields against repo root so custom mode does not
     # depend on input/ relative path layout.
     for cfg in data:
         if not isinstance(cfg, dict):
             return {"ok": False, "error": "Each config item must be an object."}
+        raw_models = cfg.get("llms_used", [])
+        if not isinstance(raw_models, list) or not raw_models:
+            return {"ok": False, "error": "Each config must select at least one model."}
+        model_names = [str(name).strip() for name in raw_models if str(name).strip()]
+        model_error = _validate_selected_models(model_names, runtime_env)
+        if model_error:
+            return {"ok": False, "error": model_error}
         for key in [
             "output_folder",
             "natural_spec_path",
@@ -1132,8 +1402,7 @@ def _run_pipeline_from_custom(payload: dict[str, Any], *, defer_execute: bool = 
         return {"ok": True, "config_path": str(tmp_path)}
 
     try:
-        env_overrides = _sanitize_env_overrides(payload.get("env_overrides", {}))
-        return _run_pipeline_with_config_path(tmp_path, env_overrides=env_overrides)
+        return _run_pipeline_with_config_path(tmp_path, runtime_env=runtime_env)
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
@@ -1656,6 +1925,9 @@ class _Handler(BaseHTTPRequestHandler):
         if path in {"/verify", "/verify.html"}:
             _serve_file(self, GUI_DIR / "verify.html", "text/html; charset=utf-8")
             return
+        if path in {"/settings", "/settings.html"}:
+            _serve_file(self, GUI_DIR / "settings.html", "text/html; charset=utf-8")
+            return
         if path == "/runner.js":
             _serve_file(self, GUI_DIR / "runner.js", "application/javascript; charset=utf-8")
             return
@@ -1664,6 +1936,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/verify.js":
             _serve_file(self, GUI_DIR / "verify.js", "application/javascript; charset=utf-8")
+            return
+        if path == "/settings.js":
+            _serve_file(self, GUI_DIR / "settings.js", "application/javascript; charset=utf-8")
+            return
+        if path == "/theme.js":
+            _serve_file(self, GUI_DIR / "theme.js", "application/javascript; charset=utf-8")
             return
         if path == "/critics-ui.js":
             _serve_file(self, GUI_DIR / "critics-ui.js", "application/javascript; charset=utf-8")
@@ -1675,6 +1953,9 @@ class _Handler(BaseHTTPRequestHandler):
             env = _effective_runtime_env()
             force_refresh = str((qs.get("force") or [""])[0] or "").strip() in {"1", "true", "True"}
             _json_response(self, _models_payload_cached(env, force_refresh=force_refresh))
+            return
+        if path == "/api/settings":
+            _json_response(self, {"ok": True, "settings": _settings_api_payload()})
             return
         if path == "/api/run-status":
             run_id = str((qs.get("run_id") or [""])[0] or "").strip()
@@ -1767,7 +2048,8 @@ class _Handler(BaseHTTPRequestHandler):
             "/api/run-start",
             "/api/run-custom-start",
             "/api/verify-files",
-            "/api/session-env",
+            "/api/settings",
+            "/api/settings/test",
             "/api/native-pick",
             "/api/upload-picker-file",
         }:
@@ -1778,6 +2060,10 @@ class _Handler(BaseHTTPRequestHandler):
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
             _json_response(self, {"ok": False, "error": "Invalid Content-Length."}, status=400)
+            return
+
+        if content_length > 2 * 1024 * 1024:
+            _json_response(self, {"ok": False, "error": "Request body is too large."}, status=413)
             return
 
         raw = self.rfile.read(content_length)
@@ -1791,22 +2077,33 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, {"ok": False, "error": "Body must be a JSON object."}, status=400)
             return
 
-        if path == "/api/session-env":
-            env_overrides = _sanitize_env_overrides(payload.get("env", {}))
-            GUI_SESSION_ENV_OVERRIDES.clear()
-            GUI_SESSION_ENV_OVERRIDES.update(env_overrides)
+        if path == "/api/settings":
             try:
-                _current_input_root().mkdir(parents=True, exist_ok=True)
-            except Exception:
-                pass
+                nonsecrets, secrets, clear_secrets = _settings_updates(payload)
+                SETTINGS_STORE.update(
+                    nonsecrets=nonsecrets,
+                    secrets=secrets,
+                    clear_secrets=set(clear_secrets),
+                )
+                _invalidate_models_cache()
+            except (KeyError, TypeError, ValueError) as exc:
+                _json_response(self, {"ok": False, "error": str(exc)}, status=400)
+                return
             _json_response(
                 self,
                 {
                     "ok": True,
-                    "saved_keys": sorted(GUI_SESSION_ENV_OVERRIDES.keys()),
+                    "message": "Settings saved. Model availability has been refreshed.",
+                    "settings": _settings_api_payload(),
                 },
                 status=200,
             )
+            return
+
+        if path == "/api/settings/test":
+            provider_id = str(payload.get("provider", "") or "").strip()
+            result = _test_provider_connection(provider_id)
+            _json_response(self, result, status=200 if result.get("ok") else 400)
             return
 
         if path == "/api/native-pick":
@@ -1834,22 +2131,22 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/run-start":
-            prep = _run_pipeline_from_template(payload, defer_execute=True)
+            runtime_env = _effective_runtime_env()
+            prep = _run_pipeline_from_template(payload, defer_execute=True, runtime_env=runtime_env)
             if not prep.get("ok"):
                 _json_response(self, prep, status=400)
                 return
-            env_overrides = _sanitize_env_overrides(payload.get("env_overrides", {}))
-            run_id = _start_pipeline_job(config_path=Path(str(prep["config_path"])), env_overrides=env_overrides)
+            run_id = _start_pipeline_job(config_path=Path(str(prep["config_path"])), runtime_env=runtime_env)
             _json_response(self, {"ok": True, "run_id": run_id}, status=200)
             return
 
         if path == "/api/run-custom-start":
-            prep = _run_pipeline_from_custom(payload, defer_execute=True)
+            runtime_env = _effective_runtime_env()
+            prep = _run_pipeline_from_custom(payload, defer_execute=True, runtime_env=runtime_env)
             if not prep.get("ok"):
                 _json_response(self, prep, status=400)
                 return
-            env_overrides = _sanitize_env_overrides(payload.get("env_overrides", {}))
-            run_id = _start_pipeline_job(config_path=Path(str(prep["config_path"])), env_overrides=env_overrides)
+            run_id = _start_pipeline_job(config_path=Path(str(prep["config_path"])), runtime_env=runtime_env)
             _json_response(self, {"ok": True, "run_id": run_id}, status=200)
             return
 
@@ -1877,6 +2174,7 @@ def main() -> int:
     print(f"spec2code GUI runner available at http://{args.host}:{args.port}/runner")
     print(f"spec2code GUI results available at http://{args.host}:{args.port}/results")
     print(f"spec2code GUI verify available at http://{args.host}:{args.port}/verify")
+    print(f"spec2code GUI settings available at http://{args.host}:{args.port}/settings")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

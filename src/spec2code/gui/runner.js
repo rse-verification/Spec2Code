@@ -7,7 +7,6 @@ const temperature = document.getElementById("temperature");
 const customName = document.getElementById("customName");
 const customCaseStudy = document.getElementById("customCaseStudy");
 const customPromptTemplate = document.getElementById("customPromptTemplate");
-const customModels = document.getElementById("customModels");
 const customPrograms = document.getElementById("customPrograms");
 const customTemperature = document.getElementById("customTemperature");
 const customMaxIterations = document.getElementById("customMaxIterations");
@@ -28,14 +27,7 @@ const modeTemplate = document.getElementById("modeTemplate");
 const modeCustom = document.getElementById("modeCustom");
 const modelsLoading = document.getElementById("modelsLoading");
 const refreshModelsBtn = document.getElementById("refreshModelsBtn");
-const anthropicApiKey = document.getElementById("anthropicApiKey");
-const openaiApiKey = document.getElementById("openaiApiKey");
-const awsProfile = document.getElementById("awsProfile");
-const awsRegion = document.getElementById("awsRegion");
-const caseStudiesRoot = document.getElementById("caseStudiesRoot");
-const inputRoot = document.getElementById("inputRoot");
-const applyRuntimeEnvBtn = document.getElementById("applyRuntimeEnvBtn");
-const runtimeEnvStatus = document.getElementById("runtimeEnvStatus");
+const modelsNote = document.getElementById("modelsNote");
 const runBtn = document.getElementById("runBtn");
 const statusBox = document.getElementById("status");
 const reportLink = document.getElementById("reportLink");
@@ -143,16 +135,35 @@ function formatModelLabel(name) {
 }
 
 function renderModels() {
+  const selected = new Set(selectedModels());
   modelsSelect.innerHTML = "";
-  const names = (_modelsPayload.all_models || _modelsPayload.models || []);
-  names.forEach((name) => {
+  const groups = Array.isArray(_modelsPayload.providers) ? _modelsPayload.providers : [];
+  const appendModel = (parent, model) => {
+    const name = typeof model === "string" ? model : model.name;
+    if (!name) return;
     const opt = document.createElement("option");
     opt.value = name;
-    opt.textContent = formatModelLabel(name);
+    opt.disabled = typeof model === "object" && model.ready === false;
+    opt.textContent = `${formatModelLabel(name)}${opt.disabled ? " (configure in Settings)" : ""}`;
     opt.title = name;
-    if (name === "test-llm-shutdown") opt.selected = true;
-    modelsSelect.appendChild(opt);
-  });
+    opt.selected = !opt.disabled && selected.has(name);
+    parent.appendChild(opt);
+  };
+
+  if (groups.length) {
+    groups.forEach((group) => {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group.label || group.id || "Models";
+      (group.models || []).forEach((model) => appendModel(optgroup, model));
+      modelsSelect.appendChild(optgroup);
+    });
+  } else {
+    (_modelsPayload.all_models || _modelsPayload.models || []).forEach((name) => appendModel(modelsSelect, name));
+  }
+
+  if (modelsNote) {
+    modelsNote.textContent = _modelsPayload.note || "Configure providers in Settings, then select one or more models.";
+  }
 }
 
 async function loadModels(force = false) {
@@ -164,42 +175,6 @@ async function loadModels(force = false) {
     renderModels();
   } finally {
     if (modelsLoading) modelsLoading.classList.add("hidden");
-  }
-}
-
-function collectEnvOverrides() {
-  const env = {};
-  const put = (k, v) => {
-    const s = String(v || "").trim();
-    if (s) env[k] = s;
-  };
-  put("ANTHROPIC_API_KEY", anthropicApiKey && anthropicApiKey.value);
-  put("OPENAI_API_KEY", openaiApiKey && openaiApiKey.value);
-  put("AWS_PROFILE", awsProfile && awsProfile.value);
-  put("AWS_REGION", awsRegion && awsRegion.value);
-  put("SPEC2CODE_CASE_STUDIES_ROOT", caseStudiesRoot && caseStudiesRoot.value);
-  put("SPEC2CODE_INPUT_ROOT", inputRoot && inputRoot.value);
-  return env;
-}
-
-async function applyRuntimeEnvAndRefreshModels() {
-  if (!applyRuntimeEnvBtn) return;
-  applyRuntimeEnvBtn.disabled = true;
-  if (runtimeEnvStatus) runtimeEnvStatus.textContent = "Applying credentials...";
-  try {
-    const data = await fetchJson("/api/session-env", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ env: collectEnvOverrides() }),
-    });
-    if (runtimeEnvStatus) {
-      const keys = Array.isArray(data.saved_keys) ? data.saved_keys : [];
-      runtimeEnvStatus.textContent = `Credentials applied. Active keys: ${keys.join(", ") || "none"}. Click 'Refresh models' to update list.`;
-    }
-  } catch (e) {
-    if (runtimeEnvStatus) runtimeEnvStatus.textContent = `Credential setup failed: ${e}`;
-  } finally {
-    applyRuntimeEnvBtn.disabled = false;
   }
 }
 
@@ -354,7 +329,7 @@ function buildCustomConfigObject() {
     name: (customName.value || "config_custom_zero-shot").trim(),
     case_study: (customCaseStudy.value || "").trim(),
     selected_prompt_template: (customPromptTemplate.value || "zero-shot").trim(),
-    llms_used: splitCsv(customModels.value),
+    llms_used: selectedModels(),
     n_programs_generated: Number(customPrograms.value || 1),
     max_generation_iterations: Number(customMaxIterations.value || 1),
     output_folder: (customOutputFolder.value || "").trim(),
@@ -435,7 +410,6 @@ pickerSearch.addEventListener("input", () => {
   customName,
   customCaseStudy,
   customPromptTemplate,
-  customModels,
   customPrograms,
   customTemperature,
   customMaxIterations,
@@ -466,13 +440,11 @@ runBtn.addEventListener("click", async () => {
           template: String(templatePath && templatePath.value ? templatePath.value : "").trim(),
           models: selectedModels(),
           manual_models: "",
-          env_overrides: collectEnvOverrides(),
           n_programs_generated: Number(nPrograms.value || 1),
           temperature: Number(temperature.value || 0.7),
         }
       : {
           config_json: JSON.stringify([buildCustomConfigObject()]),
-          env_overrides: collectEnvOverrides(),
         };
   } catch (e) {
     setStatus(`Invalid custom config: ${e}`, false);
@@ -493,7 +465,7 @@ runBtn.addEventListener("click", async () => {
 
     let done = false;
     while (!done) {
-      const data = await fetchJson(`/api/run-status?run_id=${encodeURIComponent(startData.run_id)}`);
+      const data = await fetchJson(`/api/run-status?run_id=${encodeURIComponent(startData.run_id)}`, { cache: "no-store" });
       if (!data.ok) throw new Error((data && data.error) || "Failed to read run status");
 
       const out = [];
@@ -533,11 +505,6 @@ criticsUi
   .then(() => syncCustomPreview())
   .catch((e) => setStatus(`Critics load failed: ${e}`, false));
 
-if (applyRuntimeEnvBtn) {
-  applyRuntimeEnvBtn.addEventListener("click", () => {
-    applyRuntimeEnvAndRefreshModels().catch((e) => setStatus(`Model refresh failed: ${e}`, false));
-  });
-}
 if (refreshModelsBtn) {
   refreshModelsBtn.addEventListener("click", () => {
     loadModels(true).catch((e) => setStatus(`Model load failed: ${e}`, false));

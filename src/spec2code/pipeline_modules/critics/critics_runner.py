@@ -111,11 +111,11 @@ def run_critics_on_artifacts(
 
     total_critics = len(critics_list)
     if total_critics:
-        print(f"[critics] running {total_critics} critic(s)...")
+        print(f"[critics] running {total_critics} critic(s)...", flush=True)
 
     for idx, critic in enumerate(critics_list, start=1):
         name = getattr(critic, "name", "") or "unknown"
-        print(f"[critics] {idx}/{total_critics} start: {name}")
+        print(f"[critics] {idx}/{total_critics} start: {name}", flush=True)
 
         n_cfg = dict(configs.get(name, {}))
         critic_timeout = int(n_cfg.get("timeout", timeout))
@@ -179,7 +179,7 @@ def run_critics_on_artifacts(
             results.append(r)
             overall_success = False
             overall_score = 0.0
-            print(f"[critics] {idx}/{total_critics} done: {name} fail (0s)")
+            print(f"[critics] {idx}/{total_critics} done: {name} fail (0s)", flush=True)
             continue
 
         t0 = time.perf_counter()
@@ -197,7 +197,7 @@ def run_critics_on_artifacts(
         overall_score = min(overall_score, float(r.get("score", 0.0)))
 
         status = "ok" if r.get("success") else "fail"
-        print(f"[critics] {idx}/{total_critics} done: {name} {status} ({_fmt_duration(elapsed)})")
+        print(f"[critics] {idx}/{total_critics} done: {name} {status} ({_fmt_duration(elapsed)})", flush=True)
 
     if remove_compiled and compiled_output_path:
         try:

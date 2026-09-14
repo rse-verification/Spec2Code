@@ -180,7 +180,7 @@ PYTHONPATH=src python -m spec2code.gui.run_server --host 127.0.0.1 --port 8080
 If running from inside Docker, publish the port and bind to all interfaces:
 
 ```bash
-docker run --rm -it -p 8080:8080 -v "$(pwd)":/workspace spec2code:local bash
+docker run --rm -it -p 127.0.0.1:8080:8080 -v "$(pwd)":/workspace spec2code:local bash
 cd /workspace
 PYTHONPATH=src python -m spec2code.gui.run_server --host 0.0.0.0 --port 8080
 ```
@@ -189,13 +189,20 @@ Then open:
 
 - `http://127.0.0.1:8080/runner`
 - `http://127.0.0.1:8080/results`
+- `http://127.0.0.1:8080/settings`
 
 The UI provides:
 
 - `/runner` page: template mode and custom JSON mode
 - `/results` page: embedded latest report and quick analytics (bar/pie charts)
+- `/settings` page: appearance, provider credentials, connection checks, and endpoints
 - theme options (Indigo/Monokai/Sunrise/Slate)
 - run logs and warning hints (e.g., missing Why3)
+
+Provider secrets are never returned to the browser. They are stored in the OS
+keyring when one is available, with a process-memory fallback for headless
+environments. Non-secret settings are stored in the user config directory.
+The GUI is a local single-user tool; keep its published port bound to loopback.
 
 By default, GUI/runtime outputs are written outside the repository to:
 

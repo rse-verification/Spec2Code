@@ -309,6 +309,14 @@ def available_model_names() -> List[str]:
     return sorted(merged_models.keys())
 
 
+def available_provider_specs() -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
+    providers, models = _available_specs()
+    return (
+        {name: dict(spec) for name, spec in providers.items()},
+        {name: dict(spec) for name, spec in models.items()},
+    )
+
+
 def _build_provider(provider_spec: Dict[str, Any]) -> Provider:
     provider_type = str(provider_spec.get("type", "")).strip()
     if provider_type == "bedrock":
@@ -319,17 +327,17 @@ def _build_provider(provider_spec: Dict[str, Any]) -> Provider:
         return BedrockProvider(region=region, profile=profile)
 
     if provider_type == "openai-compatible":
-        base_url = provider_spec.get("base_url")
+        base_url_env = provider_spec.get("base_url_env")
+        base_url = _env(str(base_url_env)) if base_url_env else None
         if not base_url:
-            base_url_env = provider_spec.get("base_url_env")
-            if base_url_env:
-                base_url = _env(str(base_url_env))
+            base_url = provider_spec.get("base_url")
         if not base_url:
             raise RuntimeError("openai-compatible provider requires base_url (or base_url_env).")
 
-        api_key = provider_spec.get("api_key")
-        if not api_key and provider_spec.get("api_key_env"):
-            api_key = _env(str(provider_spec["api_key_env"]))
+        api_key_env = provider_spec.get("api_key_env")
+        api_key = _env(str(api_key_env)) if api_key_env else None
+        if not api_key:
+            api_key = provider_spec.get("api_key")
         if not api_key:
             api_key = _env("OPENAI_API_KEY")
         if not api_key:
@@ -337,12 +345,14 @@ def _build_provider(provider_spec: Dict[str, Any]) -> Provider:
         return OpenAICompatibleProvider(base_url=str(base_url), api_key=str(api_key))
 
     if provider_type == "ollama":
-        base_url = provider_spec.get("base_url")
-        if not base_url and provider_spec.get("base_url_env"):
-            base_url = _env(str(provider_spec["base_url_env"]))
-        api_key = provider_spec.get("api_key")
-        if not api_key and provider_spec.get("api_key_env"):
-            api_key = _env(str(provider_spec["api_key_env"]))
+        base_url_env = provider_spec.get("base_url_env")
+        base_url = _env(str(base_url_env)) if base_url_env else None
+        if not base_url:
+            base_url = provider_spec.get("base_url")
+        api_key_env = provider_spec.get("api_key_env")
+        api_key = _env(str(api_key_env)) if api_key_env else None
+        if not api_key:
+            api_key = provider_spec.get("api_key")
         return OllamaProvider(base_url=str(base_url) if base_url else None, api_key=str(api_key) if api_key else None)
 
     raise ValueError(f"Unknown provider type: {provider_type}")

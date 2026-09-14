@@ -12,11 +12,15 @@ providers:
   ollama_local:
     type: ollama
     base_url: http://localhost:11434/v1
+    base_url_env: OLLAMA_BASE_URL
     api_key: ollama
+    api_key_env: OLLAMA_API_KEY
 
   vllm_local:
     type: openai-compatible
     base_url: http://localhost:8000/v1
+    base_url_env: VLLM_BASE_URL
+    api_key: not-required
     api_key_env: VLLM_API_KEY
 
   openai_default:

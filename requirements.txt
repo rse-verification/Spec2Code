@@ -22,3 +22,4 @@ llm-venice>=0.2.0
 llm-openrouter>=0.3
 llm-anthropic>=0.15.1
 boto3>=1.28.39
+keyring>=25.0

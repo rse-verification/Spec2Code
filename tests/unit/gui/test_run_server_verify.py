@@ -295,7 +295,7 @@ def test_run_pipeline_from_template_resolves_dotdot_paths_from_template_dir(tmp_
     assert loaded["critic_options"]["cppcheck-misra"]["misra_rules_path"] == str(
         tmp_path / "src" / "spec2code" / "pipeline_modules" / "critics" / "misra_rules_2012.txt"
     )
-    assert captured["kwargs"].get("env_overrides") == {}
+    assert "env_overrides" not in captured["kwargs"]
 
 
 @pytest.mark.unit

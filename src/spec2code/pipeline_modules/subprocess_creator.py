@@ -3,6 +3,7 @@ import shlex
 import re
 import os
 import signal
+import threading
 
 
 _TIME_RX = re.compile(r"^\s*(real|user|sys)\s+([0-9]+(?:\.[0-9]+)?)\s*$")
@@ -33,7 +34,7 @@ def _extract_time_metrics(stderr_text: str) -> tuple[str, dict[str, float]]:
         cleaned += "\n"
     return cleaned, metrics
 
-def run_command(command: str, timeout: int, cwd: str | None = None) -> tuple:
+def run_command(command: str, timeout: int, cwd: str | None = None, stream: bool = True) -> tuple:
     """
     Runs a shell command with a specified timeout.
 
@@ -60,18 +61,39 @@ def run_command(command: str, timeout: int, cwd: str | None = None) -> tuple:
         # process group so that a timeout can stop the shell and its children.
         start_new_session=(os.name != "nt"),
     )
+    stdout_parts: list[bytes] = []
+    stderr_parts: list[bytes] = []
+
+    # Drain both pipes concurrently so verbose tools cannot block, while
+    # forwarding completed lines to the CLI when a caller requests it.
+    def _reader(pipe, parts: list[bytes]) -> None:
+        try:
+            for line in iter(pipe.readline, b""):
+                parts.append(line)
+                if stream:
+                    print(line.decode("utf-8", errors="replace"), end="", flush=True)
+        finally:
+            pipe.close()
+
+    stdout_thread = threading.Thread(target=_reader, args=(process.stdout, stdout_parts), daemon=True)
+    stderr_thread = threading.Thread(target=_reader, args=(process.stderr, stderr_parts), daemon=True)
+    stdout_thread.start()
+    stderr_thread.start()
     try:
-        # communicate() drains both pipes while the child is running. Using
-        # wait() first can deadlock when a verbose tool (such as Frama-C WP)
-        # fills stdout or stderr before it exits.
-        stdout, stderr = process.communicate(timeout=timeout)
-        stderr_text, timing = _extract_time_metrics(stderr.decode("utf-8", errors="replace"))
-        return stdout.decode("utf-8", errors="replace"), stderr_text, True, process.returncode, timing
+        process.wait(timeout=timeout)
+        stdout_thread.join()
+        stderr_thread.join()
+        stdout = b"".join(stdout_parts).decode("utf-8", errors="replace")
+        stderr = b"".join(stderr_parts).decode("utf-8", errors="replace")
+        stderr_text, timing = _extract_time_metrics(stderr)
+        return stdout, stderr_text, True, process.returncode, timing
     except subprocess.TimeoutExpired:
         if os.name != "nt":
             os.killpg(process.pid, signal.SIGKILL)
         else:
             process.kill()
-        # Reap the process and close the pipes after terminating it.
-        process.communicate()
+        # Reap the process and let both pipe readers finish after terminating it.
+        process.wait()
+        stdout_thread.join()
+        stderr_thread.join()
         return "", "Timeout", False, None, {}

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: dark;
   --bg: #24262b;
   --surface: #2d3036;
   --surface-soft: #353840;
@@ -8,6 +9,19 @@
   --accent: #8ab4f8;
   --ok: #81c995;
   --err: #f28b82;
+}
+
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f6f8;
+  --surface: #ffffff;
+  --surface-soft: #edf1f5;
+  --line: #d5dbe3;
+  --text: #20252d;
+  --muted: #667080;
+  --accent: #356fcc;
+  --ok: #257942;
+  --err: #b83a34;
 }
 
 * {
@@ -87,8 +101,14 @@ body {
 
 .hotbar-nav {
   width: 100%;
-  display: grid;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
+}
+
+.hotbar-settings-link {
+  margin-top: auto;
 }
 
 .hotbar-link {
@@ -418,6 +438,113 @@ button {
   background: #2f3440;
 }
 
+.settings-link {
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.settings-link:hover {
+  text-decoration: underline;
+}
+
+#modelsSelect optgroup {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+#modelsSelect option {
+  color: var(--text);
+  font-weight: 400;
+  padding: 3px 6px;
+}
+
+#modelsSelect option:disabled {
+  color: #747b88;
+}
+
+.theme-choice {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.theme-option {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  text-align: left;
+}
+
+.theme-option strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.theme-option span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.theme-option.active {
+  border-color: var(--accent);
+  background: #3a4352;
+}
+
+html[data-theme="light"] body {
+  background:
+    radial-gradient(900px 400px at 0% -15%, #dce8f8 0%, transparent 70%),
+    var(--bg);
+}
+
+html[data-theme="light"] .hotbar {
+  background: linear-gradient(180deg, #ffffff 0%, #eef2f6 100%);
+}
+
+html[data-theme="light"] .hotbar-link.active,
+html[data-theme="light"] .mode-btn.active,
+html[data-theme="light"] .theme-option.active {
+  background: #e3ebf7;
+  border-color: #9bb3d5;
+  color: #24599f;
+}
+
+html[data-theme="light"] .hotbar-glyph,
+html[data-theme="light"] .provider-mark,
+html[data-theme="light"] .secret-state,
+html[data-theme="light"] .ghost-btn {
+  background: #e7ebf0;
+  color: #384455;
+}
+
+html[data-theme="light"] .hotbar-label,
+html[data-theme="light"] .hotbar-link.active .hotbar-label {
+  color: #384455;
+}
+
+html[data-theme="light"] .critic-item {
+  background: #f7f9fb;
+}
+
+html[data-theme="light"] .secret-clear {
+  background: #fff4f2;
+  border-color: #d9b4af;
+  color: #973d36;
+}
+
+html[data-theme="light"] .secret-state.configured {
+  background: #edf8f0;
+  border-color: #a8cdb3;
+}
+
+html[data-theme="light"] #logBox,
+html[data-theme="light"] #verifyLog,
+html[data-theme="light"] .report-frame {
+  background: #f7f9fb;
+  color: #29313d;
+}
+
 .inline-loading {
   display: inline-flex;
   align-items: center;
@@ -618,8 +745,14 @@ button {
 
   .hotbar-nav {
     display: flex;
+    flex-direction: row;
     justify-content: flex-start;
     gap: 8px;
+  }
+
+  .hotbar-settings-link {
+    margin-top: 0;
+    margin-left: auto;
   }
 
   .hotbar-link {
@@ -648,6 +781,10 @@ button {
   }
 
   .row {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-choice {
     grid-template-columns: 1fr;
   }
 

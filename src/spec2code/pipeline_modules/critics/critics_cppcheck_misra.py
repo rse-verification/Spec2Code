@@ -504,7 +504,7 @@ def _run_command_streaming(
             for line in iter(pipe.readline, ""):
                 acc.append(line)
                 if stream:
-                    print(f"{prefix}{tag}{line.rstrip()}")
+                    print(f"{prefix}{tag}{line.rstrip()}", flush=True)
         finally:
             try:
                 pipe.close()

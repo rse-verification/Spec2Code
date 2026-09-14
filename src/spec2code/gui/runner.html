@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>spec2code Runner</title>
+    <script src="theme.js"></script>
     <link rel="stylesheet" href="runner.css" />
   </head>
   <body>
@@ -37,6 +38,10 @@
             </span>
             <span class="hotbar-label">Verify</span>
           </a>
+          <a class="hotbar-link hotbar-settings-link" href="/settings" aria-label="Settings" title="Settings">
+            <span class="hotbar-glyph" aria-hidden="true"><svg viewBox="0 0 24 24" class="hotbar-icon-svg"><circle cx="12" cy="12" r="3"></circle><path fill="none" d="M12 4v2M12 18v2M4 12h2M18 12h2M6.3 6.3l1.4 1.4M16.3 16.3l1.4 1.4M17.7 6.3l-1.4 1.4M7.7 16.3l-1.4 1.4"></path></svg></span>
+            <span class="hotbar-label">Settings</span>
+          </a>
         </nav>
       </aside>
 
@@ -55,6 +60,18 @@
           <button id="modeCustom" class="mode-btn" type="button">Custom JSON Mode</button>
         </div>
 
+        <label>Models (multi-select)</label>
+        <div class="inline-tools">
+          <span id="modelsLoading" class="inline-loading hidden" aria-live="polite" role="status">
+            <span class="spinner" aria-hidden="true"></span>
+            Loading models...
+          </span>
+          <button id="refreshModelsBtn" type="button" class="ghost-btn">Refresh models</button>
+          <a class="settings-link" href="/settings">Provider settings</a>
+        </div>
+        <select id="modelsSelect" multiple size="10"></select>
+        <div id="modelsNote" class="hint"></div>
+
         <div id="templateModeBox">
           <label>Template config</label>
           <div class="input-picker-row">
@@ -62,58 +79,6 @@
             <button type="button" class="picker-btn" data-picker-target="templatePath" data-picker-kind="file" data-picker-ext=".json">Pick</button>
           </div>
           <datalist id="templateSuggestions"></datalist>
-
-          <label>Available models (multi-select)</label>
-          <div class="inline-tools">
-            <span id="modelsLoading" class="inline-loading hidden" aria-live="polite" role="status">
-              <span class="spinner" aria-hidden="true"></span>
-              Loading models...
-            </span>
-            <button id="refreshModelsBtn" type="button" class="ghost-btn">Refresh models</button>
-          </div>
-          <select id="modelsSelect" multiple size="10"></select>
-
-          <details>
-            <summary class="hint">Runtime credentials (optional)</summary>
-            <div class="row">
-              <div>
-                <label>Anthropic API key</label>
-                <input id="anthropicApiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
-              </div>
-              <div>
-                <label>OpenAI API key</label>
-                <input id="openaiApiKey" type="password" placeholder="sk-..." autocomplete="off" />
-              </div>
-            </div>
-            <div class="row">
-              <div>
-                <label>AWS profile</label>
-                <input id="awsProfile" placeholder="bedrock" autocomplete="off" />
-              </div>
-              <div>
-                <label>AWS region</label>
-                <input id="awsRegion" value="eu-west-1" autocomplete="off" />
-              </div>
-            </div>
-            <div class="row">
-              <div>
-                <label>Case studies root (optional)</label>
-                <div class="input-picker-row">
-                  <input id="caseStudiesRoot" value="../spec2code_case_studies" autocomplete="off" />
-                  <button type="button" class="picker-btn" data-picker-target="caseStudiesRoot" data-picker-kind="dir">Pick</button>
-                </div>
-              </div>
-              <div>
-                <label>Input root (optional)</label>
-                <div class="input-picker-row">
-                  <input id="inputRoot" value="../spec2code_input" autocomplete="off" />
-                  <button type="button" class="picker-btn" data-picker-target="inputRoot" data-picker-kind="dir">Pick</button>
-                </div>
-              </div>
-            </div>
-            <button id="applyRuntimeEnvBtn" type="button">Apply credentials</button>
-            <div id="runtimeEnvStatus" class="hint"></div>
-          </details>
 
           <div class="row">
             <div>
@@ -141,9 +106,6 @@
               <input id="customPromptTemplate" value="zero-shot" autocomplete="off" />
             </div>
           </div>
-
-          <label>Models (comma-separated)</label>
-          <input id="customModels" value="test-llm-shutdown" autocomplete="off" />
 
           <div class="row">
             <div>
