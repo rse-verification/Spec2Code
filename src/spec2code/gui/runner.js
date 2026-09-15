@@ -3,6 +3,7 @@ const templateSuggestions = document.getElementById("templateSuggestions");
 const modelsSelect = document.getElementById("modelsSelect");
 const nPrograms = document.getElementById("nPrograms");
 const temperature = document.getElementById("temperature");
+const templateMaxIterations = document.getElementById("templateMaxIterations");
 
 const customName = document.getElementById("customName");
 const customCaseStudy = document.getElementById("customCaseStudy");
@@ -28,6 +29,7 @@ const modeCustom = document.getElementById("modeCustom");
 const modelsLoading = document.getElementById("modelsLoading");
 const refreshModelsBtn = document.getElementById("refreshModelsBtn");
 const modelsNote = document.getElementById("modelsNote");
+const modelsDiagnostics = document.getElementById("modelsDiagnostics");
 const runBtn = document.getElementById("runBtn");
 const statusBox = document.getElementById("status");
 const reportLink = document.getElementById("reportLink");
@@ -162,7 +164,9 @@ function renderModels() {
   }
 
   if (modelsNote) {
-    modelsNote.textContent = _modelsPayload.note || "Configure providers in Settings, then select one or more models.";
+    const note = String(_modelsPayload.note || "").trim();
+    modelsNote.textContent = note;
+    if (modelsDiagnostics) modelsDiagnostics.classList.toggle("hidden", !note);
   }
 }
 
@@ -331,7 +335,7 @@ function buildCustomConfigObject() {
     selected_prompt_template: (customPromptTemplate.value || "zero-shot").trim(),
     llms_used: selectedModels(),
     n_programs_generated: Number(customPrograms.value || 1),
-    max_generation_iterations: Number(customMaxIterations.value || 1),
+    max_generation_iterations: Number(customMaxIterations.value || 0) + 1,
     output_folder: (customOutputFolder.value || "").trim(),
     natural_spec_path: (customNaturalSpecPath.value || "").trim(),
     interface_path: interfacePath,
@@ -442,6 +446,7 @@ runBtn.addEventListener("click", async () => {
           manual_models: "",
           n_programs_generated: Number(nPrograms.value || 1),
           temperature: Number(temperature.value || 0.7),
+          repair_iterations: Number(templateMaxIterations.value || 0),
         }
       : {
           config_json: JSON.stringify([buildCustomConfigObject()]),

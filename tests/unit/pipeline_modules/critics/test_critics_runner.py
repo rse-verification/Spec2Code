@@ -44,6 +44,42 @@ def test_fmt_duration_formats_seconds_minutes_hours():
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_run_critics_uses_the_configured_execution_order():
+    calls: list[str] = []
+
+    class OrderedCritic(_FakeCritic):
+        def run(self, inp: Dict[str, Any]) -> Dict[str, Any]:
+            calls.append(self.name)
+            return super().run(inp)
+
+    critics = [
+        OrderedCritic("binary-size", True, 1.0),
+        OrderedCritic("cppcheck-misra", True, 1.0),
+        OrderedCritic("vernfr-data-flow", True, 1.0),
+        OrderedCritic("compile", True, 1.0),
+        OrderedCritic("framac-wp", True, 1.0),
+        OrderedCritic("vernfr-control-flow", True, 1.0),
+    ]
+
+    critics_runner.run_critics_on_artifacts(
+        critics=critics,
+        raw_c_path="generated.c",
+        compiled_output_path="generated.out",
+        timeout=60,
+    )
+
+    assert calls == [
+        "compile",
+        "framac-wp",
+        "cppcheck-misra",
+        "vernfr-control-flow",
+        "vernfr-data-flow",
+        "binary-size",
+    ]
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_build_default_critics_respects_framac_options():
     critics = critics_runner.build_default_critics(
         solvers=["Alt-Ergo"],
@@ -61,12 +97,12 @@ def test_build_default_critics_respects_framac_options():
 
     assert len(critics) == 5
     assert isinstance(critics[0], CompileCritic)
-    assert isinstance(critics[1], CppcheckMisraCritic)
-    assert isinstance(critics[2], FramaCWPCritic)
+    assert isinstance(critics[1], FramaCWPCritic)
+    assert isinstance(critics[2], CppcheckMisraCritic)
     assert isinstance(critics[3], VernfrCritic)
     assert isinstance(critics[4], VernfrCritic)
 
-    framac = critics[2]
+    framac = critics[1]
     assert framac.wp_timeout == 9
     assert framac.smoke_tests is True
     assert framac.model == "typed"

@@ -159,7 +159,7 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
     paths = write_shutdown_case_study(tmp_path)
     config_path = tmp_path / "config.json"
     cfg = build_config_dict(paths)
-    cfg["critic_context"] = {"framac_wp_no_let": True, "debug": True}
+    cfg["critic_context"] = {"framac_wp_no_qed": True, "debug": True}
     cfg["critic_options"] = {
         "framac-wp": {"wp_timeout": 9, "rte": False},
         "cppcheck-misra": {"timeout": 120},
@@ -185,7 +185,7 @@ def test_load_and_prepare_configs_critic_context_and_options_passthrough(tmp_pat
     prepared = config_loader.load_and_prepare_configs(str(config_path), solvers=[])
     item = prepared[0]
 
-    assert item.critic_context["framac_wp_no_let"] is True
+    assert item.critic_context["framac_wp_no_qed"] is True
     assert item.critic_options["framac-wp"]["wp_timeout"] == 9
     assert captured["critic_options"]["cppcheck-misra"]["timeout"] == 120
     assert captured["critic_options"]["esbmc"] == {
@@ -230,7 +230,7 @@ def test_load_and_prepare_configs_legacy_framac_fields_are_mapped(tmp_path, monk
     config_path = tmp_path / "config.json"
     cfg = build_config_dict(paths)
     cfg["framac_wp_timeout_s"] = 7
-    cfg["framac_wp_no_let"] = True
+    cfg["framac_wp_no_qed"] = True
     write_config(config_path, [cfg])
 
     monkeypatch.setattr(config_loader, "format_prompt", lambda template, inputs: "prompt")
@@ -240,7 +240,7 @@ def test_load_and_prepare_configs_legacy_framac_fields_are_mapped(tmp_path, monk
     item = prepared[0]
 
     assert item.critic_options["framac-wp"]["wp_timeout"] == 7
-    assert item.critic_context["framac_wp_no_let"] is True
+    assert item.critic_context["framac_wp_no_qed"] is True
 
 
 @pytest.mark.unit
@@ -371,7 +371,7 @@ def test_load_and_prepare_configs_module_state_header_present_or_absent(tmp_path
         ("timeout_s", 1.2, "must be int"),
         ("copy_headers_to_output", 1, "must be boolean"),
         ("framac_wp_timeout_s", 2.2, "must be int"),
-        ("framac_wp_no_let", "false", "must be boolean"),
+        ("framac_wp_no_qed", "false", "must be boolean"),
         ("critic_context", "x", "must be an object/dict"),
         ("critic_options", "x", "must be an object/dict"),
     ],

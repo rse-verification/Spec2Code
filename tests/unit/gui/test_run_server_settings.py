@@ -4,6 +4,7 @@ import json
 import threading
 from http.server import ThreadingHTTPServer
 from urllib.error import HTTPError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
 import pytest
@@ -281,6 +282,44 @@ def test_provider_error_redacts_submitted_secret(monkeypatch):
 
 
 @pytest.mark.unit
+def test_live_model_discovery_returns_only_enumerated_provider_models(monkeypatch):
+    calls = []
+
+    class FakeModels:
+        def __init__(self, base_url):
+            self.base_url = base_url
+
+        def list(self):
+            return [type("Model", (), {"id": f"{self.base_url}-model"})()]
+
+    class FakeOpenAI:
+        def __init__(self, *, api_key, base_url, timeout, max_retries):
+            calls.append((api_key, base_url, timeout, max_retries))
+            self.models = FakeModels(base_url)
+
+    monkeypatch.setattr(run_server.llms, "OpenAI", FakeOpenAI)
+    monkeypatch.delenv("SPEC2CODE_GUI_INCLUDE_TEST_MODELS", raising=False)
+
+    models, notes = run_server._discover_provider_models({
+        "OPENAI_API_KEY": "openai-secret",
+        "OLLAMA_BASE_URL": "http://ollama.test/v1",
+        "VLLM_BASE_URL": "http://vllm.test/v1",
+    })
+
+    assert models == [
+        "ollama/http://ollama.test/v1-model",
+        "openai/https://api.openai.com/v1-model",
+        "vllm/http://vllm.test/v1-model",
+    ]
+    assert "Anthropic model discovery skipped: API key is not configured." in notes
+    assert calls == [
+        ("openai-secret", "https://api.openai.com/v1", 10.0, 0),
+        ("ollama", "http://ollama.test/v1", 10.0, 0),
+        ("not-required", "http://vllm.test/v1", 10.0, 0),
+    ]
+
+
+@pytest.mark.unit
 def test_settings_http_api_saves_without_returning_secret(tmp_path, monkeypatch):
     store = SettingsStore(tmp_path / "settings.json", environment={}, keyring_backend=_NoKeyring())
     monkeypatch.setattr(run_server, "SETTINGS_STORE", store)
@@ -348,6 +387,32 @@ def test_settings_http_api_saves_without_returning_secret(tmp_path, monkeypatch)
         with urlopen(request, timeout=3):
             pass
         assert "VLLM_API_KEY" not in store.env_snapshot({})
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=3)
+
+
+@pytest.mark.unit
+def test_artifact_http_api_only_serves_files_under_output_root(tmp_path, monkeypatch):
+    output_root = tmp_path / "output"
+    output_root.mkdir()
+    artifact = output_root / "generated.c"
+    artifact.write_text("int main(void) { return 0; }\n", encoding="utf-8")
+    outside = tmp_path / "outside.c"
+    outside.write_text("forbidden\n", encoding="utf-8")
+    monkeypatch.setattr(run_server, "OUTPUT_ROOT", output_root)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), run_server._Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    base_url = f"http://127.0.0.1:{server.server_address[1]}"
+    try:
+        with urlopen(f"{base_url}/api/artifact?path={quote(str(artifact))}", timeout=3) as response:
+            assert response.read().decode("utf-8").replace("\r\n", "\n") == "int main(void) { return 0; }\n"
+        with pytest.raises(HTTPError) as exc_info:
+            urlopen(f"{base_url}/api/artifact?path={quote(str(outside))}", timeout=3)
+        assert exc_info.value.code == 403
     finally:
         server.shutdown()
         server.server_close()

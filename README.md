@@ -110,7 +110,7 @@ From repository root:
 docker build -f dockerfile -t spec2code:local .
 ```
 
-Vernfr (`tools/nfrcheck`) is optional and is not built by default.
+The default image includes compile (GCC), Cppcheck/MISRA, Frama-C/WP, and VerNFR critics. Valgrind and ESBMC are optional.
 
 Apple Silicon (M1/M2/M3) notes:
 
@@ -132,10 +132,10 @@ Optional (only if you need Bedrock CLI commands in-container):
 docker build -f dockerfile --build-arg INSTALL_AWSCLI=1 -t spec2code:local .
 ```
 
-Optional (enable Vernfr build in Docker image):
+Optional (enable Valgrind and ESBMC critics):
 
 ```bash
-docker build -f dockerfile --build-arg BUILD_NFRCHECK=1 -t spec2code:local .
+docker build -f dockerfile --build-arg INSTALL_VALGRIND=1 --build-arg INSTALL_ESBMC=1 -t spec2code:local .
 ```
 
 ### 3) Run container with project mounted
@@ -200,8 +200,9 @@ The UI provides:
 - run logs and warning hints (e.g., missing Why3)
 
 Provider secrets are never returned to the browser. They are stored in the OS
-keyring when one is available, with a process-memory fallback for headless
-environments. Non-secret settings are stored in the user config directory.
+keyring when one is available, with an encrypted local fallback for headless
+or broken-keyring environments. Non-secret settings are stored in the user
+config directory.
 The GUI is a local single-user tool; keep its published port bound to loopback.
 
 By default, GUI/runtime outputs are written outside the repository to:
@@ -288,7 +289,7 @@ Key fields:
 - `llms_used`, `n_programs_generated`, `temperature`
 - `natural_spec_path`, `interface_path`, `headers_dir`, `headers_manifest`
 - `include_dirs`, `verification_header_path`
-- `critics`, `timeout_s`, `framac_wp_timeout_s`, `framac_wp_no_let`
+- `critics`, `timeout_s`, `framac_wp_timeout_s`, `framac_wp_no_qed`
 
 Notes:
 
@@ -365,14 +366,15 @@ PYTHONPATH=src python -m spec2code.cli.run_pipeline --config config/gui_template
 For Vernfr critics in local (non-Docker) runs, install optional tooling first:
 
 ```bash
+opam switch create ocaml5 ocaml-base-compiler.5.4.0
 bash tools/install_optional_vernfr.sh
 ```
 
-Manual equivalent:
+`spec2code.opam` is a virtual package defining the compatible OPAM dependencies for the Frama-C/WP and VerNFR critics. It pins VerNFR to a tested upstream revision; the installer runs `opam install --deps-only ./spec2code.opam`.
+
+Verify the installed VerNFR plugin:
 
 ```bash
 eval "$(opam env --switch=ocaml5)"
-cd tools/nfrcheck
-dune build @install
-dune install
+frama-c -plugins | grep -i vernfr
 ```

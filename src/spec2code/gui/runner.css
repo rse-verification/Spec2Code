@@ -653,6 +653,52 @@ html[data-theme="light"] .report-frame {
   display: none !important;
 }
 
+.models-diagnostics {
+  position: relative;
+  display: inline-flex;
+  margin-top: 7px;
+}
+
+.info-btn {
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--muted);
+  cursor: help;
+  font-family: Georgia, serif;
+  font-style: italic;
+  font-weight: 700;
+}
+
+.info-popover {
+  position: absolute;
+  z-index: 10;
+  left: 28px;
+  bottom: 0;
+  width: min(420px, calc(100vw - 64px));
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .28);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity .15s ease, transform .15s ease;
+}
+
+.models-diagnostics:hover .info-popover,
+.models-diagnostics:focus-within .info-popover {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
 .full-width {
   grid-column: 1 / -1;
 }
@@ -663,6 +709,32 @@ html[data-theme="light"] .report-frame {
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.results-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 14px;
+  align-items: center;
+}
+
+.artifact-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.artifact-links a {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  font-size: 12px;
+  padding: 5px 9px;
+  text-decoration: none;
+}
+
+.artifact-links a:hover {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
 }
 
 .report-frame {
@@ -698,6 +770,14 @@ html[data-theme="light"] .report-frame {
   height: 100%;
   background: linear-gradient(90deg, #8ab4f8, #5f8fd9);
 }
+
+.time-fill {
+  background: linear-gradient(90deg, #b28cff, #6c82d8);
+}
+
+.severity-error .bar-fill { background: var(--err); }
+.severity-warning .bar-fill { background: var(--warn); }
+.severity-info .bar-fill { background: var(--accent); }
 
 .pie {
   width: 168px;
@@ -814,5 +894,19 @@ html[data-theme="light"] .report-frame {
   .row-actions {
     flex-direction: column;
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 680px) {
+  .results-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .results-summary .row-actions {
+    justify-content: flex-start;
+  }
+
+  .bar-row {
+    grid-template-columns: 96px 1fr 48px;
   }
 }

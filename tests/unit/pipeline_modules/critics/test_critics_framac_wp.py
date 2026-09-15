@@ -41,7 +41,7 @@ def test_framac_run_builds_expected_command_and_context_flags(tmp_path, monkeypa
         {
             "c_file_path": str(c_file),
             "context": {
-                "framac_wp_no_let": True,
+                "framac_wp_no_qed": True,
                 "interface_text": "void ShutdownAlgorithm_10ms(void);",
             },
         }
@@ -53,7 +53,7 @@ def test_framac_run_builds_expected_command_and_context_flags(tmp_path, monkeypa
     assert "-wp" in seen["cmd"]
     assert "-inline-calls ShutdownAlgorithm_10ms" in seen["cmd"]
     assert "-wp-rte" in seen["cmd"]
-    assert "-wp-no-let" in seen["cmd"]
+    assert "-wp-no-qed" in seen["cmd"]
     assert "-wp-smoke-tests" in seen["cmd"]
     assert "-wp-prover Alt-Ergo,CVC4" in seen["cmd"]
     assert "-wp-timeout 7" in seen["cmd"]

@@ -58,23 +58,28 @@
 
         <div id="tab-code" class="tab-panel active">
           <div class="panel">
-            <div class="panel-title">C Implementation</div>
-            <pre id="codeBlock" class="code-block"></pre>
+            <div class="panel-title">C Implementation <span id="codeArtifactLink"></span></div>
+            <div class="panel-hint">Highlighted lines include an annotation marker. Hover or focus it to see the critic finding.</div>
+            <div id="codeBlock" class="code-block" role="region" aria-label="C implementation"></div>
           </div>
           <div class="panel">
-            <div class="panel-title">Generated Header</div>
-            <pre id="headerBlock" class="code-block"></pre>
+            <div class="panel-title">Generated Header <span id="headerArtifactLink"></span></div>
+            <div id="headerBlock" class="code-block" role="region" aria-label="Generated header"></div>
           </div>
           <div class="panel">
-            <div class="panel-title">Generated ACSL</div>
-            <div id="acslPath" class="muted"></div>
+            <div class="panel-title">Generated ACSL <span id="acslArtifactLink"></span></div>
+            <div id="acslPath" class="muted">No ACSL artifact was produced for this run.</div>
           </div>
         </div>
 
         <div id="tab-critics" class="tab-panel">
           <div class="panel">
-            <div class="panel-title">Critics Summary</div>
+            <div class="panel-title">Critic Scorecards</div>
             <div id="criticsSummary" class="grid"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-title">Critic Elapsed Time</div>
+            <div id="criticsTiming" class="timing-chart"></div>
           </div>
           <div class="panel">
             <div class="panel-title">Findings</div>

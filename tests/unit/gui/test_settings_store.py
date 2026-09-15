@@ -83,16 +83,39 @@ def test_secrets_use_keyring_and_are_redacted_from_reads_and_json(tmp_path):
     assert "secret" not in (tmp_path / "settings.json").read_text(encoding="utf-8")
 
 
-def test_broken_keyring_falls_back_to_memory_and_clear_is_explicit(tmp_path):
-    store = SettingsStore(tmp_path / "settings.json", environment={}, keyring_backend=BrokenKeyring())
-    store.update_secrets({"anthropic_api_key": "memory-secret"})
+def test_broken_keyring_persists_encrypted_secrets_across_instances(tmp_path):
+    path = tmp_path / "settings.json"
+    store = SettingsStore(path, environment={}, keyring_backend=BrokenKeyring())
+    store.update_secrets({"anthropic_api_key": "encrypted-secret"})
 
-    assert store.read()["anthropic_api_key"]["source"] == "memory"
-    assert not (tmp_path / "settings.json").exists()
+    assert store.read()["anthropic_api_key"]["source"] == "encrypted_file"
+    assert not path.exists()
+    assert "encrypted-secret" not in store._secret_store_path.read_text(encoding="utf-8")
+    assert store._secret_key_path.exists()
 
+    restarted = SettingsStore(path, environment={}, keyring_backend=BrokenKeyring())
+    assert restarted.read()["anthropic_api_key"]["source"] == "encrypted_file"
+    assert restarted.env_snapshot({})["ANTHROPIC_API_KEY"] == "encrypted-secret"
+
+
+def test_broken_keyring_fallback_clear_is_explicit_and_persistent(tmp_path):
+    path = tmp_path / "settings.json"
+    store = SettingsStore(path, environment={}, keyring_backend=BrokenKeyring())
+    store.update_secrets({"anthropic_api_key": "encrypted-secret"})
     store.clear_secret("anthropic_api_key")
 
     assert store.read()["anthropic_api_key"] == {
+        "configured": False,
+        "source": "unset",
+        "secret": True,
+    }
+    assert json.loads(path.read_text(encoding="utf-8")) == {
+        "_cleared_secrets": ["anthropic_api_key"],
+    }
+    assert not store._secret_store_path.exists()
+
+    restarted = SettingsStore(path, environment={}, keyring_backend=BrokenKeyring())
+    assert restarted.read()["anthropic_api_key"] == {
         "configured": False,
         "source": "unset",
         "secret": True,

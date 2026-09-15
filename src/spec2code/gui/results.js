@@ -3,6 +3,10 @@ const reportLinkResults = document.getElementById("reportLinkResults");
 const criticBars = document.getElementById("criticBars");
 const outcomePie = document.getElementById("outcomePie");
 const outcomeLegend = document.getElementById("outcomeLegend");
+const criticTimes = document.getElementById("criticTimes");
+const severityBars = document.getElementById("severityBars");
+const artifactLinksResults = document.getElementById("artifactLinksResults");
+const resultsSummaryText = document.getElementById("resultsSummaryText");
 const refreshResultsBtn = document.getElementById("refreshResultsBtn");
 
 function applyReportFrameEmbedPatch() {
@@ -28,20 +32,6 @@ function applyReportFrameEmbedPatch() {
     `;
     doc.head.appendChild(style);
 
-    // Extra safeguard for already-rendered reports/assets: compact visually
-    // noisy blank rows when they dominate the code blocks.
-    const codeBlocks = Array.from(doc.querySelectorAll(".code-block"));
-    codeBlocks.forEach((block) => {
-      const rows = Array.from(block.querySelectorAll(".line"));
-      if (!rows.length) return;
-      const blankRows = rows.filter((r) => {
-        const t = (r.querySelector(".line-code")?.textContent || "").trim();
-        return t === "";
-      });
-      if (blankRows.length / rows.length > 0.2) {
-        blankRows.forEach((r) => r.remove());
-      }
-    });
   } catch (_e) {
     // ignore cross-frame/transient load issues
   }
@@ -98,6 +88,50 @@ function renderOutcome(critics) {
   `;
 }
 
+function renderTimes(critics) {
+  if (!Array.isArray(critics) || !critics.length) {
+    criticTimes.textContent = "No critic timing data available.";
+    return;
+  }
+  const durations = critics.map((critic) => Number(critic.elapsed_time_s ?? (critic.metrics || {}).elapsed_time_s ?? 0));
+  const maximum = Math.max(...durations, 0.001);
+  criticTimes.innerHTML = critics.map((critic, index) => {
+    const seconds = durations[index];
+    const percent = Math.max(1, Math.min(100, (seconds / maximum) * 100));
+    return `<div class="bar-row"><div>${escapeHtml(critic.tool || "unknown")}</div><div class="bar-track"><div class="bar-fill time-fill" style="width:${percent}%"></div></div><div>${formatSeconds(seconds)}</div></div>`;
+  }).join("");
+}
+
+function renderSeverity(critics) {
+  const counts = { error: 0, warning: 0, info: 0 };
+  (critics || []).forEach((critic) => (critic.findings || []).forEach((finding) => {
+    const severity = String(finding.severity || "info").toLowerCase();
+    counts[severity] = (counts[severity] || 0) + 1;
+  }));
+  const maximum = Math.max(...Object.values(counts), 1);
+  severityBars.innerHTML = Object.entries(counts).map(([severity, count]) => {
+    const percent = (count / maximum) * 100;
+    return `<div class="bar-row severity-${severity}"><div>${escapeHtml(severity)}</div><div class="bar-track"><div class="bar-fill" style="width:${percent}%"></div></div><div>${count}</div></div>`;
+  }).join("");
+}
+
+function formatSeconds(value) {
+  const total = Math.max(0, Math.round(Number(value) || 0));
+  const minutes = Math.floor(total / 60);
+  return minutes ? `${minutes}m${String(total % 60).padStart(2, "0")}s` : `${total}s`;
+}
+
+function renderArtifacts(data) {
+  const artifacts = [
+    ["C file", data.generated_file_path],
+    ["Header", data.generated_header_path],
+    ["ACSL", data.generated_acsl_path],
+  ].filter(([, path]) => path);
+  artifactLinksResults.innerHTML = artifacts.length
+    ? artifacts.map(([label, path]) => `<a href="/api/artifact?path=${encodeURIComponent(path)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`).join("")
+    : "<span class=\"muted-note\">No generated artifacts available.</span>";
+}
+
 async function refreshResults() {
   try {
     const [runRes, verifyRes] = await Promise.all([
@@ -118,6 +152,10 @@ async function refreshResults() {
       criticBars.textContent = (verifyRes.payload && verifyRes.payload.error) || (runRes.payload && runRes.payload.error) || "No results.";
       outcomeLegend.textContent = "";
       outcomePie.style.background = "transparent";
+      criticTimes.textContent = "";
+      severityBars.textContent = "";
+      artifactLinksResults.textContent = "";
+      resultsSummaryText.textContent = "No report or verify result is available yet.";
       reportFrame.srcdoc = "<html><body style='font-family:Segoe UI,sans-serif;padding:16px;color:#8a8f99;background:#23262d'>No report or verify result available yet.</body></html>";
       return;
     }
@@ -127,8 +165,10 @@ async function refreshResults() {
     const useVerify = verifyOk && (!runOk || verifyMtime >= runMtime);
 
     let critics = [];
+    let activeData = {};
     if (useVerify) {
       const data = (verifyRes.payload && verifyRes.payload.data) || {};
+      activeData = data.result || data;
       critics = ((data.result || {}).critics_results) || [];
       const cFile = (((data.inputs || {}).c_file_path) || "").toString();
       reportFrame.srcdoc = `<html><body style="font-family:Segoe UI,sans-serif;padding:16px;color:#dbe2ee;background:#23262d"><h3 style="margin:0 0 8px">Latest Verify Result</h3><div style="opacity:.85">Source file: ${escapeHtml(cFile || "(unknown)")}</div><div style="margin-top:8px;opacity:.8">Open full JSON for details.</div></body></html>`;
@@ -138,6 +178,7 @@ async function refreshResults() {
       }
     } else {
       const data = (runRes.payload && runRes.payload.data) || {};
+      activeData = data;
       critics = data.critics_results || [];
       reportFrame.src = "/reports/last-run.html?embed=1";
       if (reportLinkResults) {
@@ -148,6 +189,11 @@ async function refreshResults() {
 
     renderBars(critics);
     renderOutcome(critics);
+    renderTimes(critics);
+    renderSeverity(critics);
+    renderArtifacts(activeData);
+    const failed = critics.filter((critic) => !(critic.score === 1 || critic.success === true)).length;
+    resultsSummaryText.textContent = `${critics.length} critic${critics.length === 1 ? "" : "s"} ran; ${failed} need${failed === 1 ? "s" : ""} attention. Open a highlighted line marker in the detailed report for the diagnostic message.`;
   } catch (e) {
     criticBars.textContent = `Failed to load results: ${e}`;
   }

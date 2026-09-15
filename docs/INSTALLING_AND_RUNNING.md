@@ -12,17 +12,18 @@ docker build -f dockerfile -t spec2code:local .
 
 Notes:
 
-- Vernfr (`tools/nfrcheck`) is optional and not built by default.
+- Default image critics: compile (GCC), Cppcheck/MISRA, Frama-C/WP, and VerNFR.
+- Optional critics: Valgrind and ESBMC are omitted unless explicitly enabled.
 - Optional Bedrock CLI in image:
 
 ```bash
 docker build -f dockerfile --build-arg INSTALL_AWSCLI=1 -t spec2code:local .
 ```
 
-- Optional enable Vernfr build:
+- Optional Valgrind and ESBMC critics:
 
 ```bash
-docker build -f dockerfile --build-arg BUILD_NFRCHECK=1 -t spec2code:local .
+docker build -f dockerfile --build-arg INSTALL_VALGRIND=1 --build-arg INSTALL_ESBMC=1 -t spec2code:local .
 ```
 
 ### 2) Start container
@@ -64,16 +65,17 @@ PYTHONPATH=src python -m spec2code.cli.run_pipeline --config config/gui_template
 If using Vernfr critics outside Docker:
 
 ```bash
+opam switch create ocaml5 ocaml-base-compiler.5.4.0
 bash tools/install_optional_vernfr.sh
 ```
 
-Manual equivalent:
+`spec2code.opam` is a virtual package that records the compatible OPAM dependencies for the Frama-C/WP and VerNFR critics. It pins VerNFR to a tested upstream revision. The installer runs `opam install --deps-only ./spec2code.opam`; set `SPEC2CODE_OPAM_SWITCH` before running it to use a switch other than `ocaml5`.
+
+Verify the installed VerNFR plugin:
 
 ```bash
 eval "$(opam env --switch=ocaml5)"
-cd tools/nfrcheck
-dune build @install
-dune install
+frama-c -plugins | grep -i vernfr
 ```
 
 ## Runtime Paths

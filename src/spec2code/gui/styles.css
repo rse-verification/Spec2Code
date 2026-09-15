@@ -275,6 +275,24 @@ body {
   margin-bottom: 10px;
 }
 
+.panel-hint {
+  color: var(--muted);
+  font-size: 11px;
+  margin: -4px 0 10px;
+}
+
+.artifact-link {
+  margin-left: 6px;
+  color: var(--accent-2);
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.artifact-link:hover {
+  text-decoration: underline;
+}
+
 .kv-list,
 .list,
 .table {
@@ -392,7 +410,7 @@ body {
 
 .code-block .line {
   display: grid;
-  grid-template-columns: 48px 1fr;
+  grid-template-columns: 48px 1fr auto;
   gap: 10px;
   padding: 0 6px;
   line-height: 1.2;
@@ -406,6 +424,61 @@ body {
   text-align: right;
   color: var(--muted);
   user-select: none;
+}
+
+.line-diagnostic {
+  align-self: center;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  color: var(--warn);
+  cursor: help;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.line.error .line-diagnostic { color: var(--err); }
+.line.info .line-diagnostic { color: var(--accent); }
+
+.timing-chart {
+  display: grid;
+  gap: 9px;
+}
+
+.timing-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 180px) 1fr 64px;
+  gap: 10px;
+  align-items: center;
+  font-size: 12px;
+}
+
+.timing-label,
+.timing-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.timing-value {
+  color: var(--muted);
+  text-align: right;
+}
+
+.timing-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+.timing-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), #b28cff);
 }
 
 .code-block .line.error {

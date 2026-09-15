@@ -141,7 +141,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
                 "framac-wp": {
                     "wp_timeout": 7,
                     "solvers": "Alt-Ergo",
-                    "framac_wp_no_let": True,
+                    "framac_wp_no_qed": True,
                     "inline-calls": "ShutdownAlgorithm_10ms",
                 },
                 "valgrind": {"executable_args": '--case smoke --name "phase one"'},
@@ -163,7 +163,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert build_kwargs["critic_options"]["compile"]["test_harness_source_name"] == "main.c"
     assert build_kwargs["critic_options"]["framac-wp"]["wp_timeout"] == 7
     assert "solvers" not in build_kwargs["critic_options"]["framac-wp"]
-    assert build_kwargs["critic_options"]["framac-wp"]["framac_wp_no_let"] is True
+    assert build_kwargs["critic_options"]["framac-wp"]["framac_wp_no_qed"] is True
     assert build_kwargs["critic_options"]["framac-wp"]["inline-calls"] == "ShutdownAlgorithm_10ms"
 
     run_kwargs = captured["run"]
@@ -182,7 +182,7 @@ def test_run_verify_files_happy_path_builds_and_runs_critics(tmp_path, monkeypat
     assert "executable_args" not in run_kwargs["base_context"]
     assert run_kwargs["base_context"]["generated_files"] == [str(c_file)]
     assert run_kwargs["critic_configs"]["compile"]["test_harness_path"] == str(harness_file)
-    assert run_kwargs["critic_configs"]["framac-wp"]["framac_wp_no_let"] is True
+    assert run_kwargs["critic_configs"]["framac-wp"]["framac_wp_no_qed"] is True
     assert run_kwargs["critic_configs"]["framac-wp"]["inline-calls"] == "ShutdownAlgorithm_10ms"
     assert run_kwargs["critic_configs"]["valgrind"]["executable_args"] == '--case smoke --name "phase one"'
 
@@ -231,6 +231,7 @@ def test_list_templates_includes_gui_templates(tmp_path, monkeypatch):
 def test_run_pipeline_from_template_resolves_dotdot_paths_from_template_dir(tmp_path, monkeypatch):
     monkeypatch.setattr(run_server, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(run_server, "GUI_TMP_DIR", tmp_path / "output" / "gui_tmp")
+    monkeypatch.setenv("SPEC2CODE_GUI_INCLUDE_TEST_MODELS", "1")
 
     tpl = _write(
         tmp_path / "input" / "sgmm-config.json",
@@ -280,6 +281,7 @@ def test_run_pipeline_from_template_resolves_dotdot_paths_from_template_dir(tmp_
             "manual_models": "",
             "n_programs_generated": 1,
             "temperature": 0.7,
+            "repair_iterations": 2,
         }
     )
 
@@ -289,6 +291,7 @@ def test_run_pipeline_from_template_resolves_dotdot_paths_from_template_dir(tmp_
     assert loaded["interface_path"] == str(tmp_path / "case_studies" / "sgmm_full" / "headers" / "sgmm.is")
     assert loaded["headers_dir"] == str(tmp_path / "case_studies" / "sgmm_full" / "headers")
     assert loaded["include_dirs"][0] == str(tmp_path / "case_studies" / "sgmm_full" / "headers")
+    assert loaded["max_generation_iterations"] == 3
     assert loaded["critic_options"]["framac-wp"]["verification_header_template_path"] == str(
         tmp_path / "case_studies" / "sgmm_full" / "headers" / "sgmm_full_ver.h"
     )
@@ -393,37 +396,27 @@ def test_credential_ready_models_filters_missing_keys(monkeypatch):
 @pytest.mark.unit
 def test_api_models_hides_bedrock_foundation_ids_when_profiles_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(run_server, "REPO_ROOT", tmp_path)
-    monkeypatch.setattr(run_server, "_default_gui_models", lambda: ["test-llm-shutdown"])
+    monkeypatch.setattr(run_server, "_default_gui_models", lambda: [])
     monkeypatch.setattr(
         run_server,
-        "_credential_ready_models",
-        lambda env: (["test-llm-shutdown", "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0"], {}),
+        "_discover_provider_models",
+        lambda env: (["openai/discovered-model"], []),
     )
     monkeypatch.setattr(
         run_server,
         "_list_bedrock_models",
-        lambda env: (
+        lambda env, timeout_s=None: (
             ["bedrock-profile/arn:aws:bedrock:eu-west-1:123456789012:inference-profile/ip-abc"],
             None,
         ),
     )
 
-    env = run_server._effective_runtime_env()
-    default_models = run_server._default_gui_models()
-    credential_models, unavailable = run_server._credential_ready_models(env)
-    all_models = set(credential_models)
-    bedrock_models, bedrock_note = run_server._list_bedrock_models(env)
-    has_profiles = any(str(m).startswith("bedrock-profile/") for m in bedrock_models)
-    if has_profiles:
-        all_models = {m for m in all_models if not str(m).startswith("bedrock/")}
-        bedrock_models = [m for m in bedrock_models if str(m).startswith("bedrock-profile/")]
-    all_models.update(bedrock_models)
+    payload = run_server._compute_models_payload({})
 
-    assert default_models == ["test-llm-shutdown"]
-    assert "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0" not in all_models
-    assert "bedrock-profile/arn:aws:bedrock:eu-west-1:123456789012:inference-profile/ip-abc" in all_models
-    assert unavailable == {}
-    assert bedrock_note is None
+    assert payload["models"] == []
+    assert "bedrock/anthropic.claude-3-5-sonnet-20240620-v1:0" not in payload["all_models"]
+    assert "openai/discovered-model" in payload["all_models"]
+    assert "bedrock-profile/arn:aws:bedrock:eu-west-1:123456789012:inference-profile/ip-abc" in payload["all_models"]
 
 
 @pytest.mark.unit

@@ -61,7 +61,7 @@ def _make_cfg(tmp_path: Path, *, n_programs: int = 1, with_module_state: bool = 
         case_study_inputs=csi,
         filled_prompt="PROMPT",
         interface_path=str(interface_path),
-        critic_context={"framac_wp_no_let": True},
+        critic_context={"framac_wp_no_qed": True},
         critic_options={"framac-wp": {"verification_header_template_path": str(headers_dir / "ver.h")}},
     )
 
@@ -133,7 +133,7 @@ def test_execute_pipeline_prepared_happy_path_writes_outputs_and_copies_files(tm
 
     settings = seen["kwargs"]["settings"]
     assert settings.timeout_s == 77
-    assert settings.critic_context.get("framac_wp_no_let") is True
+    assert settings.critic_context.get("framac_wp_no_qed") is True
     assert settings.critic_options["framac-wp"]["verification_header_template_path"].endswith("ver.h")
 
     with (Path(cfg.output_folder) / "output_pipeline.json").open("r", encoding="utf-8") as f:

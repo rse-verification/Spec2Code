@@ -43,13 +43,16 @@
         </header>
 
         <div class="layout layout-results">
-          <section class="panel full-width">
-            <h2>Latest Report</h2>
+          <section class="panel full-width results-summary">
+            <div>
+              <h2>Run Summary</h2>
+              <p id="resultsSummaryText" class="muted-note">Loading latest result...</p>
+            </div>
+            <div id="artifactLinksResults" class="artifact-links"></div>
             <div class="row-actions">
               <button id="refreshResultsBtn" type="button">Refresh</button>
-              <a id="reportLinkResults" href="/reports/last-run.html" target="_blank" rel="noopener">Open in new tab</a>
+              <a id="reportLinkResults" href="/reports/last-run.html" target="_blank" rel="noopener">Open detailed report</a>
             </div>
-            <iframe id="reportFrame" title="latest report" class="report-frame"></iframe>
           </section>
 
           <section class="panel">
@@ -62,6 +65,23 @@
             <div class="muted-note">Distribution of critic outcomes in the latest sample.</div>
             <div id="outcomePie" class="pie"></div>
             <div id="outcomeLegend" class="legend"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Critic Time</h2>
+            <div class="muted-note">Relative elapsed time for each critic.</div>
+            <div id="criticTimes" class="bars"></div>
+          </section>
+
+          <section class="panel">
+            <h2>Finding Severity</h2>
+            <div class="muted-note">Diagnostics by severity across all enabled critics.</div>
+            <div id="severityBars" class="bars"></div>
+          </section>
+
+          <section class="panel full-width">
+            <h2>Detailed Report</h2>
+            <iframe id="reportFrame" title="latest report" class="report-frame"></iframe>
           </section>
         </div>
       </main>

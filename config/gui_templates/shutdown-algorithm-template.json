@@ -19,7 +19,7 @@
     },
     "temperature": 0.7,
     "framac_wp_timeout_s": 2,
-    "framac_wp_no_let": true,
+    "framac_wp_no_qed": true,
     "critics": [
       "compile",
       "framac-wp",

@@ -68,7 +68,7 @@ MODELS_CACHE_TTL_S = 60.0
 _RUN_JOBS_LOCK = threading.Lock()
 _RUN_JOBS: dict[str, dict[str, Any]] = {}
 
-MOCK_MODELS = [
+TEST_MODELS = [
     "test-llm-shutdown",
 ]
 
@@ -406,9 +406,9 @@ def _list_templates() -> list[str]:
 
 
 def _list_models() -> list[str]:
-    names = set(llms.available_model_names())
-    names.update(MOCK_MODELS)
-    return sorted(names)
+    if str(os.getenv("SPEC2CODE_GUI_INCLUDE_TEST_MODELS", "")).strip() == "1":
+        return list(TEST_MODELS)
+    return []
 
 
 def _default_gui_models() -> list[str]:
@@ -416,8 +416,12 @@ def _default_gui_models() -> list[str]:
 
 
 def _model_provider_id(name: str) -> str:
-    if name in MOCK_MODELS:
+    if name in TEST_MODELS:
         return "mock"
+    if "/" in name:
+        prefix = name.split("/", 1)[0]
+        if prefix in {"openai", "anthropic", "ollama", "vllm"}:
+            return prefix
     if name.startswith(("bedrock/", "bedrock-profile/", "bedrock:")):
         return "aws_bedrock"
 
@@ -505,9 +509,9 @@ def _models_cache_key(env: dict[str, str]) -> str:
 
 def _compute_models_payload(env: dict[str, str]) -> dict[str, Any]:
     default_models = _default_gui_models()
-    credential_models, unavailable = _credential_ready_models(env)
-    all_models = set(credential_models)
-    bedrock_models, bedrock_note = _list_bedrock_models(env)
+    discovered_models, notes = _discover_provider_models(env)
+    all_models = set(discovered_models)
+    bedrock_models, bedrock_note = _list_bedrock_models(env, timeout_s=10)
     has_profiles = any(str(m).startswith("bedrock-profile/") for m in bedrock_models)
     if has_profiles:
         # When inference profiles are available, hide raw foundation model IDs
@@ -516,21 +520,18 @@ def _compute_models_payload(env: dict[str, str]) -> dict[str, Any]:
         bedrock_models = [m for m in bedrock_models if str(m).startswith("bedrock-profile/")]
     all_models.update(bedrock_models)
 
-    notes: list[str] = []
     if bedrock_models:
         notes.append(f"Detected {len(bedrock_models)} Bedrock model(s) from AWS.")
     if has_profiles:
         notes.append("Using Bedrock inference profiles; hidden raw bedrock/<modelId> entries to prevent on-demand invocation errors.")
     if bedrock_note:
-        notes.append("Bedrock is unavailable. Update AWS settings and refresh models.")
-    if unavailable:
-        notes.append(f"{len(unavailable)} model(s) need provider setup.")
+        notes.append(bedrock_note)
 
     return {
         "models": default_models,
         "all_models": sorted(all_models),
-        "providers": _group_models(sorted(all_models), unavailable),
-        "unavailable_models": unavailable,
+        "providers": _group_models(sorted(all_models), {}),
+        "unavailable_models": {},
         "note": " ".join(notes),
     }
 
@@ -708,6 +709,70 @@ def _redact_error(exc: Exception, env: dict[str, str]) -> str:
     return message[:300]
 
 
+def _model_ids(response: Any) -> list[str]:
+    items = getattr(response, "data", response)
+    if isinstance(items, dict):
+        items = items.get("data", [])
+    try:
+        iterator = iter(items)
+    except TypeError:
+        return []
+    return sorted({
+        str(item.get("id") if isinstance(item, dict) else getattr(item, "id", "")).strip()
+        for item in iterator
+        if str(item.get("id") if isinstance(item, dict) else getattr(item, "id", "")).strip()
+    })
+
+
+def _discover_provider_models(env: dict[str, str]) -> tuple[list[str], list[str]]:
+    """Return only IDs the configured providers enumerate successfully."""
+    discovered: list[str] = []
+    notes: list[str] = []
+
+    def discover_openai_compatible(provider: str, base_url: str, api_key: str) -> None:
+        try:
+            client = llms.OpenAI(
+                api_key=api_key,
+                base_url=base_url,
+                timeout=10.0,
+                max_retries=0,
+            )
+            discovered.extend(f"{provider}/{model_id}" for model_id in _model_ids(client.models.list()))
+        except Exception:
+            notes.append(f"{provider} model discovery failed.")
+
+    openai_key = str(env.get("OPENAI_API_KEY", "")).strip()
+    if openai_key:
+        discover_openai_compatible("openai", "https://api.openai.com/v1", openai_key)
+    else:
+        notes.append("OpenAI model discovery skipped: API key is not configured.")
+
+    anthropic_key = str(env.get("ANTHROPIC_API_KEY", "")).strip()
+    if anthropic_key:
+        try:
+            from anthropic import Anthropic
+
+            client = Anthropic(api_key=anthropic_key, timeout=10.0, max_retries=0)
+            discovered.extend(f"anthropic/{model_id}" for model_id in _model_ids(client.models.list(limit=100)))
+        except Exception:
+            notes.append("Anthropic model discovery failed.")
+    else:
+        notes.append("Anthropic model discovery skipped: API key is not configured.")
+
+    discover_openai_compatible(
+        "ollama",
+        str(env.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"),
+        str(env.get("OLLAMA_API_KEY") or "ollama"),
+    )
+    discover_openai_compatible(
+        "vllm",
+        str(env.get("VLLM_BASE_URL") or "http://localhost:8000/v1"),
+        str(env.get("VLLM_API_KEY") or "not-required"),
+    )
+    discovered.extend(_list_models())
+    return sorted(set(discovered)), notes
+
+
 def _test_provider_connection(provider_id: str) -> dict[str, Any]:
     provider_id = str(provider_id or "").strip()
     env = _effective_runtime_env()
@@ -787,7 +852,7 @@ def _credential_ready_models(env: dict[str, str]) -> tuple[list[str], dict[str, 
     providers, specs = llms.available_provider_specs()
 
     for name in _list_models():
-        if name in MOCK_MODELS:
+        if name in TEST_MODELS:
             available.append(name)
             continue
         if name.startswith("bedrock/"):
@@ -896,7 +961,7 @@ def _list_bedrock_models(env: dict[str, str], *, timeout_s: int | None = None) -
             client_kwargs["config"] = Config(
                 connect_timeout=timeout_s,
                 read_timeout=timeout_s,
-                retries={"max_attempts": 1},
+                retries={"max_attempts": 0},
             )
         client = session.client("bedrock", **client_kwargs)
 
@@ -1065,6 +1130,13 @@ def _run_pipeline_from_template(
         return {"ok": False, "error": "'temperature' must be numeric."}
 
     try:
+        repair_iterations = int(payload.get("repair_iterations", 0))
+        if repair_iterations < 0:
+            raise ValueError
+    except Exception:
+        return {"ok": False, "error": "'repair_iterations' must be an integer >= 0."}
+
+    try:
         data = json.loads(template_path.read_text(encoding="utf-8"))
     except Exception as exc:
         return {"ok": False, "error": f"Failed to parse template JSON: {exc}"}
@@ -1086,6 +1158,7 @@ def _run_pipeline_from_template(
         cfg["llms_used"] = selected_models
         cfg["n_programs_generated"] = n_programs
         cfg["temperature"] = temperature
+        cfg["max_generation_iterations"] = repair_iterations + 1
 
         # Normalize common path fields against repo root so GUI templates can
         # live outside input/ without relative-path breakage.
@@ -1957,6 +2030,20 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/api/settings":
             _json_response(self, {"ok": True, "settings": _settings_api_payload()})
             return
+        if path == "/api/artifact":
+            raw_path = str((qs.get("path") or [""])[0] or "").strip()
+            if not raw_path:
+                _text_response(self, "Missing artifact path.", status=400)
+                return
+            artifact_path = Path(raw_path).expanduser().resolve()
+            if not _is_safe_path_under(artifact_path, OUTPUT_ROOT):
+                _text_response(self, "Forbidden", status=403)
+                return
+            content_type = "text/plain; charset=utf-8"
+            if artifact_path.suffix == ".json":
+                content_type = "application/json; charset=utf-8"
+            _serve_file(self, artifact_path, content_type)
+            return
         if path == "/api/run-status":
             run_id = str((qs.get("run_id") or [""])[0] or "").strip()
             if not run_id:
@@ -2171,10 +2258,11 @@ def main() -> int:
 
     httpd = ThreadingHTTPServer((args.host, args.port), _Handler)
     _current_input_root().mkdir(parents=True, exist_ok=True)
-    print(f"spec2code GUI runner available at http://{args.host}:{args.port}/runner")
-    print(f"spec2code GUI results available at http://{args.host}:{args.port}/results")
-    print(f"spec2code GUI verify available at http://{args.host}:{args.port}/verify")
-    print(f"spec2code GUI settings available at http://{args.host}:{args.port}/settings")
+    display_host = "localhost" if args.host in {"0.0.0.0", "::"} else args.host
+    print(f"spec2code GUI runner available at http://{display_host}:{args.port}/runner")
+    print(f"spec2code GUI results available at http://{display_host}:{args.port}/results")
+    print(f"spec2code GUI verify available at http://{display_host}:{args.port}/verify")
+    print(f"spec2code GUI settings available at http://{display_host}:{args.port}/settings")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

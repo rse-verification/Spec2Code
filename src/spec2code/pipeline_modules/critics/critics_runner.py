@@ -106,8 +106,19 @@ def run_critics_on_artifacts(
 
     critics_list = list(critics)
 
-    # Make sure compile always runs first because of dependencies
-    critics_list.sort(key=lambda c: 0 if getattr(c, "name", "") == "compile" else 1)
+    execution_order = {
+        "compile": 0,
+        "framac-wp": 1,
+        "cppcheck-misra": 2,
+        "vernfr-control-flow": 3,
+        "vernfr-data-flow": 4,
+        "binary-size": 5,
+        "valgrind": 6,
+        "esbmc": 7,
+    }
+    # Compile produces the executable required by runtime critics. Keep all
+    # other critics in their user-facing order for predictable execution logs.
+    critics_list.sort(key=lambda c: execution_order.get(getattr(c, "name", ""), len(execution_order)))
 
     total_critics = len(critics_list)
     if total_critics:

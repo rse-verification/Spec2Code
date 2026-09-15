@@ -60,11 +60,12 @@ def initialize_llms(names: Optional[List[str]] = None) -> Dict[str, object]:
     if names is None:
         model_names = list(available)
     else:
-        # Accept dynamic Bedrock ids discovered at runtime via GUI/API.
+        # Accept provider-prefixed IDs discovered at runtime via the GUI/API.
         model_names = [
             n
             for n in names
-            if (n in available) or n.startswith("bedrock/") or n.startswith("bedrock:") or n.startswith("bedrock-profile/")
+            if (n in available)
+            or n.startswith(("openai/", "anthropic/", "ollama/", "vllm/", "bedrock/", "bedrock:", "bedrock-profile/"))
         ]
     models: Dict[str, object] = llms.build_models(model_names)
 

@@ -4,7 +4,11 @@ const criticsList = document.getElementById("criticsList");
 const codeBlock = document.getElementById("codeBlock");
 const headerBlock = document.getElementById("headerBlock");
 const acslPath = document.getElementById("acslPath");
+const codeArtifactLink = document.getElementById("codeArtifactLink");
+const headerArtifactLink = document.getElementById("headerArtifactLink");
+const acslArtifactLink = document.getElementById("acslArtifactLink");
 const criticsSummary = document.getElementById("criticsSummary");
+const criticsTiming = document.getElementById("criticsTiming");
 const findingsTable = document.getElementById("findingsTable");
 const promptBlock = document.getElementById("promptBlock");
 const rawBlock = document.getElementById("rawBlock");
@@ -75,6 +79,7 @@ function renderAll(data) {
   renderCriticsList(data);
   renderCode(data);
   renderCriticsSummary(data);
+  renderCriticsTiming(data);
   renderFindings(data, "");
   renderPrompt(data);
   renderRaw(data);
@@ -88,9 +93,7 @@ function renderOverview(data) {
     ["Critics Score", formatScore(data.critics_score)],
     ["Elapsed", formatSeconds(data.total_elapsed_time_program)],
     ["Attempts", data.generation_attempt_count || 1],
-    ["C File", data.generated_file_path || "n/a"],
-    ["Header", data.generated_header_path || "n/a"],
-    ["ACSL", data.generated_acsl_path || "n/a"],
+    ["Findings", collectFindings(data).length],
   ];
 
   overview.innerHTML = items
@@ -129,27 +132,15 @@ function renderCode(data) {
 
   codeBlock.innerHTML = renderHighlightedCode(compactCodeForViewer(data.code || ""), "c", cHighlights);
   headerBlock.innerHTML = renderHighlightedCode(compactCodeForViewer(data.generated_header || ""), "c", hHighlights);
-  acslPath.textContent = data.generated_acsl_path || "";
+  renderArtifactLink(codeArtifactLink, data.generated_file_path, "Open C file");
+  renderArtifactLink(headerArtifactLink, data.generated_header_path, "Open header");
+  renderArtifactLink(acslArtifactLink, data.generated_acsl_path, "Open ACSL");
+  acslPath.textContent = data.generated_acsl_path ? "Open the generated ACSL artifact." : "No ACSL artifact was produced for this run.";
 }
 
 function compactCodeForViewer(code) {
-  const lines = String(code || "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .split("\n");
-  const out = [];
-  let lastBlank = false;
-  lines.forEach((line) => {
-    const isBlank = line.trim() === "";
-    if (isBlank && lastBlank) return;
-    out.push(line);
-    lastBlank = isBlank;
-  });
-  const blankCount = out.filter((l) => l.trim() === "").length;
-  if (out.length > 0 && blankCount / out.length > 0.2) {
-    return out.filter((l) => l.trim() !== "").join("\n");
-  }
-  return out.join("\n");
+  // Preserve source line numbers so diagnostics always point to the right code.
+  return String(code || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function renderCriticsSummary(data) {
@@ -180,6 +171,25 @@ function renderCriticsSummary(data) {
       `;
     })
     .join("");
+}
+
+function renderCriticsTiming(data) {
+  const critics = data.critics_results || [];
+  if (!critics.length) {
+    criticsTiming.innerHTML = "<div class=\"kv-empty\">No critic timing data.</div>";
+    return;
+  }
+  const durations = critics.map((critic) => Number(critic.elapsed_time_s ?? (critic.metrics || {}).elapsed_time_s ?? 0));
+  const maxDuration = Math.max(...durations, 0.001);
+  criticsTiming.innerHTML = critics.map((critic, index) => {
+    const duration = durations[index];
+    const percent = Math.max(1, (duration / maxDuration) * 100);
+    return `<div class="timing-row">
+      <div class="timing-label">${escapeHtml(critic.tool || "unknown")}</div>
+      <div class="timing-track"><div class="timing-fill" style="width:${percent}%"></div></div>
+      <div class="timing-value">${formatSeconds(duration)}</div>
+    </div>`;
+  }).join("");
 }
 
 function renderFindings(data, filterText) {
@@ -235,7 +245,7 @@ function collectFindings(data) {
   const list = data.critics_results || [];
   const out = [];
   list.forEach((c) => {
-    (c.findings || []).forEach((f) => out.push(f));
+    (c.findings || []).forEach((f) => out.push({ ...f, tool: f.tool || c.tool || "unknown" }));
   });
   return out;
 }
@@ -252,10 +262,10 @@ function buildLineHighlights(findings, filePath, extension) {
       : locFile.endsWith(extension);
     if (!matches) return;
     const sev = f.severity || "info";
-    const prev = map.get(line);
-    if (!prev || severityRank(sev) > severityRank(prev)) {
-      map.set(line, sev);
-    }
+    const prev = map.get(line) || { severity: sev, findings: [] };
+    if (severityRank(sev) > severityRank(prev.severity)) prev.severity = sev;
+    prev.findings.push(f);
+    map.set(line, prev);
   });
   return map;
 }
@@ -274,16 +284,30 @@ function renderHighlightedCode(code, language, highlights) {
   return lines
     .map((lineHtml, idx) => {
       const lineNumber = idx + 1;
-      const sev = highlights.get(lineNumber);
-      const sevClass = sev ? ` ${sev}` : "";
+      const highlight = highlights.get(lineNumber);
+      const sevClass = highlight ? ` ${highlight.severity}` : "";
+      const messages = highlight ? highlight.findings.map((finding) => `${finding.tool || "critic"}: ${finding.message || "finding"}`).join("\n") : "";
+      const marker = highlight
+        ? `<span class="line-diagnostic" tabindex="0" title="${escapeHtml(messages)}" aria-label="${escapeHtml(messages)}">${highlight.findings.length}</span>`
+        : "";
       return `
         <div class="line${sevClass}">
           <div class="line-num">${lineNumber}</div>
-          <div class="line-code">${lineHtml || " "}</div>
+          <div class="line-code">${lineHtml || " "}</div>${marker}
         </div>
       `;
     })
     .join("");
+}
+
+function renderArtifactLink(container, path, label) {
+  if (!container) return;
+  if (!path) {
+    container.textContent = "";
+    return;
+  }
+  const href = `/api/artifact?path=${encodeURIComponent(path)}`;
+  container.innerHTML = `<a class="artifact-link" href="${href}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
 }
 
 function severityRank(sev) {

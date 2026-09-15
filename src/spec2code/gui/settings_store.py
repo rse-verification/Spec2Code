@@ -9,6 +9,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
 
+from cryptography.fernet import Fernet, InvalidToken
+
 
 CONFIG_PATH_ENV = "SPEC2CODE_GUI_SETTINGS_PATH"
 KEYRING_SERVICE = "spec2code.gui"
@@ -81,6 +83,8 @@ class SettingsStore:
         self.config_path = Path(config_path).expanduser() if config_path is not None else _default_config_path(
             self._environment
         )
+        self._secret_store_path = self.config_path.with_name(f"{self.config_path.stem}_secrets.enc")
+        self._secret_key_path = self.config_path.with_name(f"{self.config_path.stem}_secrets.key")
         self._keyring = keyring_backend if keyring_backend is not None else _load_keyring_backend()
         self._memory_secrets: dict[str, str] = {}
         self._cleared_secrets: set[str] = self._read_clear_tombstones()
@@ -121,7 +125,7 @@ class SettingsStore:
         self.update(nonsecrets=values)
 
     def update_secrets(self, values: Mapping[str, str]) -> None:
-        """Store secrets in keyring, falling back to process memory on any failure."""
+        """Store secrets in keyring, with encrypted-file fallback on failure."""
         self.update(secrets=values)
 
     def clear_secret(self, name: str) -> None:
@@ -191,6 +195,7 @@ class SettingsStore:
                         self._keyring.delete_password(KEYRING_SERVICE, name)
                     except Exception:
                         pass
+            self._delete_fallback_secrets(clear_names)
 
             for name, value in secrets.items():
                 persisted = False
@@ -202,8 +207,12 @@ class SettingsStore:
                         pass
                 if persisted:
                     self._memory_secrets.pop(name, None)
+                    self._delete_fallback_secrets({name})
                 else:
-                    self._memory_secrets[name] = value
+                    if self._write_fallback_secret(name, value):
+                        self._memory_secrets.pop(name, None)
+                    else:
+                        self._memory_secrets[name] = value
 
     def env_snapshot(self, base_env: Mapping[str, str]) -> Mapping[str, str]:
         """Return an immutable base environment overlaid with effective GUI settings."""
@@ -240,6 +249,9 @@ class SettingsStore:
                     return value, "keyring"
             except Exception:
                 pass
+        value = self._read_fallback_secrets().get(name)
+        if value:
+            return value, "encrypted_file"
         environment_value = self._environment.get(env_name)
         if environment_value:
             return environment_value, "environment"
@@ -289,6 +301,99 @@ class SettingsStore:
                 handle.write("\n")
                 temporary_path = Path(handle.name)
             os.replace(temporary_path, self.config_path)
+        finally:
+            if temporary_path is not None and temporary_path.exists():
+                try:
+                    temporary_path.unlink()
+                except OSError:
+                    pass
+
+    def _read_fallback_secrets(self) -> dict[str, str]:
+        try:
+            token = self._secret_store_path.read_bytes()
+            fernet = self._load_fernet()
+            if fernet is None:
+                return {}
+            data = json.loads(fernet.decrypt(token).decode("utf-8"))
+        except (OSError, ValueError, TypeError, InvalidToken):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            name: value
+            for name, value in data.items()
+            if name in SECRET_FIELDS and isinstance(value, str) and value != ""
+        }
+
+    def _write_fallback_secret(self, name: str, value: str) -> bool:
+        secrets = self._read_fallback_secrets()
+        secrets[name] = value
+        fernet = self._load_or_create_fernet()
+        if fernet is None:
+            return False
+        try:
+            token = fernet.encrypt(json.dumps(secrets, sort_keys=True).encode("utf-8"))
+            self._write_private_file(self._secret_store_path, token)
+            return True
+        except OSError:
+            return False
+
+    def _delete_fallback_secrets(self, names: set[str]) -> None:
+        secrets = self._read_fallback_secrets()
+        if not names.intersection(secrets):
+            return
+        for name in names:
+            secrets.pop(name, None)
+        try:
+            if secrets:
+                fernet = self._load_fernet()
+                if fernet is None:
+                    return
+                token = fernet.encrypt(json.dumps(secrets, sort_keys=True).encode("utf-8"))
+                self._write_private_file(self._secret_store_path, token)
+            else:
+                self._secret_store_path.unlink()
+        except OSError:
+            pass
+
+    def _load_fernet(self) -> Fernet | None:
+        try:
+            return Fernet(self._secret_key_path.read_bytes())
+        except (OSError, ValueError, TypeError):
+            return None
+
+    def _load_or_create_fernet(self) -> Fernet | None:
+        fernet = self._load_fernet()
+        if fernet is not None:
+            return fernet
+        if self._secret_key_path.exists():
+            return None
+        key = Fernet.generate_key()
+        try:
+            self._write_private_file(self._secret_key_path, key)
+        except OSError:
+            return None
+        return Fernet(key)
+
+    @staticmethod
+    def _write_private_file(path: Path, content: bytes) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary_path: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                "wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+            ) as handle:
+                handle.write(content)
+                temporary_path = Path(handle.name)
+            try:
+                os.chmod(temporary_path, 0o600)
+            except OSError:
+                pass
+            os.replace(temporary_path, path)
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
         finally:
             if temporary_path is not None and temporary_path.exists():
                 try:

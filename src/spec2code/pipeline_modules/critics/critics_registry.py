@@ -128,8 +128,8 @@ def _build_esbmc(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
 
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "compile": _build_compile,
-    "cppcheck-misra": _build_cppcheck_misra,
     "framac-wp": _build_framac_wp,
+    "cppcheck-misra": _build_cppcheck_misra,
     "vernfr-control-flow": _build_vernfr_control,
     "vernfr-data-flow": _build_vernfr_data,
     "valgrind": _build_valgrind,
@@ -140,8 +140,8 @@ CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
 
 DEFAULT_CRITIC_NAMES: List[str] = [
     "compile",
-    "cppcheck-misra",
     "framac-wp",
+    "cppcheck-misra",
     "vernfr-control-flow",
     "vernfr-data-flow",
 ]
@@ -170,20 +170,6 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
         ],
     },
     {
-        "name": "cppcheck-misra",
-        "label": "Cppcheck MISRA",
-        "default_enabled": True,
-        "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
-            {
-                "key": "misra_rules_path",
-                "type": "path",
-                "label": "MISRA Rules Path",
-                "default": DEFAULT_MISRA_RULES_PATH,
-            },
-        ],
-    },
-    {
         "name": "framac-wp",
         "label": "Frama-C WP",
         "default_enabled": True,
@@ -204,7 +190,7 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "default": DEFAULT_FRAMAC_FORMAL_PATH,
                 "ext": ".c,.h",
             },
-            {"key": "framac_wp_no_let", "type": "bool", "label": "No Let", "default": False},
+            {"key": "framac_wp_no_qed", "type": "bool", "label": "Disable Qed", "default": False},
             {
                 "key": "framac_wp_no_split_switch",
                 "type": "bool",
@@ -214,6 +200,20 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
             {"key": "model", "type": "string", "label": "Model", "default": "real"},
             {"key": "rte", "type": "bool", "label": "Enable RTE", "default": True},
             {"key": "smoke_tests", "type": "bool", "label": "Smoke Tests", "default": False},
+        ],
+    },
+    {
+        "name": "cppcheck-misra",
+        "label": "Cppcheck MISRA",
+        "default_enabled": True,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {
+                "key": "misra_rules_path",
+                "type": "path",
+                "label": "MISRA Rules Path",
+                "default": DEFAULT_MISRA_RULES_PATH,
+            },
         ],
     },
     {
@@ -248,6 +248,15 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
         ],
     },
     {
+        "name": "binary-size",
+        "label": "Binary Size",
+        "default_enabled": False,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {"key": "binary_size_limit_bytes", "type": "int", "label": "Binary Size Limit (bytes)", "default": 1024},
+        ],
+    },
+    {
         "name": "valgrind",
         "label": "Valgrind",
         "default_enabled": False,
@@ -263,15 +272,6 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "label": "Executable Args",
                 "default": "",
             },
-        ],
-    },
-    {
-        "name": "binary-size",
-        "label": "Binary Size",
-        "default_enabled": False,
-        "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
-            {"key": "binary_size_limit_bytes", "type": "int", "label": "Binary Size Limit (bytes)", "default": 1024},
         ],
     },
     {

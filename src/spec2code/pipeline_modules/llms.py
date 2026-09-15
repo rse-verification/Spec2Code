@@ -206,6 +206,40 @@ class OpenAICompatibleProvider:
         )
 
 
+class AnthropicProvider:
+    def __init__(self, *, api_key: str):
+        from anthropic import Anthropic
+
+        self._client = Anthropic(api_key=api_key)
+
+    def generate(
+        self,
+        *,
+        model_id: str,
+        prompt: str,
+        temperature: float,
+        max_tokens: Optional[int] = None,
+        max_completion_tokens: Optional[int] = None,
+    ) -> _SimpleLLMResponse:
+        started = time.perf_counter()
+        response = self._client.messages.create(
+            model=model_id,
+            max_tokens=int(max_tokens or max_completion_tokens or 4096),
+            temperature=float(temperature),
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(
+            str(item.text)
+            for item in response.content
+            if getattr(item, "type", None) == "text"
+        )
+        return _SimpleLLMResponse(
+            _text=text.strip(),
+            _raw={"provider": "anthropic", "model": model_id, "response": response.model_dump()},
+            _duration_ms=(time.perf_counter() - started) * 1000.0,
+        )
+
+
 class OllamaProvider(OpenAICompatibleProvider):
     # Ollama exposes an OpenAI-compatible API under /v1.
     def __init__(self, *, base_url: Optional[str] = None, api_key: Optional[str] = None):
@@ -260,19 +294,6 @@ class ModelHandle:
 ModelSpec = Dict[str, Any]
 
 
-MODEL_REGISTRY: Dict[str, ModelSpec] = {
-    "claude-3.5-sonnet": {"type": "llm", "id": "claude-3.5-sonnet", "key_env": "ANTHROPIC_API_KEY"},
-    "4o": {"type": "llm", "id": "4o", "key_env": "OPENAI_API_KEY"},
-    "gpt-4o": {"type": "llm", "id": "gpt-4o", "key_env": "OPENAI_API_KEY"},
-    "gpt-4o-mini": {"type": "llm", "id": "gpt-4o-mini", "key_env": "OPENAI_API_KEY"},
-    "gpt-4.5-preview": {"type": "llm", "id": "gpt-4.5-preview", "key_env": "OPENAI_API_KEY"},
-    "o1-preview": {"type": "llm", "id": "o1-preview", "key_env": "OPENAI_API_KEY"},
-    "o1-mini": {"type": "llm", "id": "o1-mini", "key_env": "OPENAI_API_KEY"},
-    "o1": {"type": "llm", "id": "o1", "key_env": "OPENAI_API_KEY"},
-    "o3-mini": {"type": "llm", "id": "o3-mini", "key_env": "OPENAI_API_KEY"},
-}
-
-
 _DEFAULT_YAML_PATH = Path(__file__).resolve().parents[3] / "config" / "llm_providers.yaml"
 
 
@@ -294,14 +315,11 @@ def _load_yaml_model_config() -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict
 
 
 def _available_specs() -> tuple[Dict[str, Dict[str, Any]], Dict[str, Dict[str, Any]]]:
-    # YAML models override or extend built-in registry entries.
     providers, yaml_models = _load_yaml_model_config()
-    merged_models: Dict[str, Dict[str, Any]] = dict(MODEL_REGISTRY)
     for model_name, spec in yaml_models.items():
         if not isinstance(spec, dict):
             raise ValueError(f"Model '{model_name}' in YAML config must be a mapping.")
-        merged_models[model_name] = dict(spec)
-    return providers, merged_models
+    return providers, {name: dict(spec) for name, spec in yaml_models.items()}
 
 
 def available_model_names() -> List[str]:
@@ -360,6 +378,35 @@ def _build_provider(provider_spec: Dict[str, Any]) -> Provider:
 
 def build_model(name: str) -> Any:
     providers, specs = _available_specs()
+    provider_prefix, separator, model_id = name.partition("/")
+    if name not in specs and separator and provider_prefix in {"openai", "ollama", "vllm", "anthropic"}:
+        if not model_id:
+            raise KeyError(f"Invalid model name '{name}' (missing model id).")
+        if provider_prefix == "anthropic":
+            api_key = _env("ANTHROPIC_API_KEY")
+            if not api_key:
+                raise RuntimeError("Missing environment variable: ANTHROPIC_API_KEY")
+            provider: Provider = AnthropicProvider(api_key=api_key)
+        elif provider_prefix == "ollama":
+            provider = OllamaProvider()
+        else:
+            env_prefix = "OPENAI" if provider_prefix == "openai" else "VLLM"
+            base_url = _env(f"{env_prefix}_BASE_URL") or (
+                "https://api.openai.com/v1" if provider_prefix == "openai" else "http://localhost:8000/v1"
+            )
+            api_key = _env(f"{env_prefix}_API_KEY")
+            if not api_key:
+                raise RuntimeError(f"Missing environment variable: {env_prefix}_API_KEY")
+            provider = OpenAICompatibleProvider(base_url=base_url, api_key=api_key)
+        if provider_prefix == "openai":
+            return ModelHandle(
+                name=name,
+                model_id=model_id,
+                provider=provider,
+                default_max_completion_tokens=4096,
+            )
+        return ModelHandle(name=name, model_id=model_id, provider=provider, default_max_tokens=4096)
+
     if name.startswith("bedrock-profile/"):
         model_id = name.split("/", 1)[1].strip()
         if not model_id:

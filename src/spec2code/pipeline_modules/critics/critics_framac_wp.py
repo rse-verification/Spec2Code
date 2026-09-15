@@ -61,8 +61,8 @@ class FramaCWPCritic:
             parts += ["-inline-calls", shlex.quote(self.inline_calls)]
         if self.rte:
             parts += ["-wp-rte"]
-        if ctx.get("framac_wp_no_let"):
-            parts += ["-wp-no-let"]
+        if ctx.get("framac_wp_no_qed"):
+            parts += ["-wp-no-qed"]
         if ctx.get("framac_wp_no_split_switch"):
             parts += ["-wp-no-split-switch"]
         parts += [

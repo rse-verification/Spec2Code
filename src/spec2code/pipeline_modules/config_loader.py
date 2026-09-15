@@ -301,10 +301,10 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
         framac_opts.setdefault("wp_timeout", framac_wp_timeout_s)
         critic_options["framac-wp"] = framac_opts
 
-    if "framac_wp_no_let" in cfg:
-        framac_wp_no_let = _optional_bool(cfg, "framac_wp_no_let", False)
-        if framac_wp_no_let:
-            critic_context.setdefault("framac_wp_no_let", True)
+    if "framac_wp_no_qed" in cfg:
+        framac_wp_no_qed = _optional_bool(cfg, "framac_wp_no_qed", False)
+        if framac_wp_no_qed:
+            critic_context.setdefault("framac_wp_no_qed", True)
 
     if "framac_wp_no_split_switch" in cfg:
         framac_wp_no_split_switch = _optional_bool(cfg, "framac_wp_no_split_switch", False)
