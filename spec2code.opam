@@ -1,7 +1,7 @@
 opam-version: "2.0"
-synopsis: "Virtual OPAM dependency package for Spec2Code critics"
+synopsis: "Virtual opam dependency package for Spec2Code critics"
 description: """
-This virtual package pins the compatible OPAM toolchain used by the
+This virtual package pins the compatible opam toolchain used by the
 Frama-C/WP and VerNFR critics. It has no build artifacts of its own.
 """
 maintainer: ["Spec2Code maintainers"]
@@ -10,13 +10,10 @@ license: "MIT"
 homepage: "https://github.com/rse-verification/Spec2Code"
 bug-reports: "https://github.com/rse-verification/Spec2Code/issues"
 pin-depends: [
-  ["frama-c-vernfr.dev" "git+https://github.com/rse-verification/VerNFR.git#d7a1fa063be56caf1ba3c29cd4c7938118638d73"]
+  ["frama-c-vernfr.dev" "git+https://github.com/rse-verification/VerNFR.git#v1.1"]
 ]
 depends: [
-  "ocaml" {>= "5.4" & < "5.5"}
-  "dune" {>= "3.13" & < "4.0"}
+  "ocaml" {>= "5.4" & < "5.6"}
   "frama-c" {>= "33.0" & < "34.0"}
-  "why3" {>= "1.6" & < "2.0"}
-  "alt-ergo" {>= "2.5" & < "3.0"}
   "frama-c-vernfr"
 ]
