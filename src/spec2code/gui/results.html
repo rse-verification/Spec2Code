@@ -37,51 +37,53 @@
       </aside>
 
       <main class="workspace">
-        <header class="workspace-header">
-          <h1>Results</h1>
-          <p>Inspect the latest run.</p>
+        <header class="results-run-header">
+          <div>
+            <p id="runIdentity" class="eyebrow">Latest run</p>
+            <h1 id="runTitle">Loading results</h1>
+            <p id="resultsSummaryText" class="muted-note">Fetching the latest run data...</p>
+          </div>
+          <div class="results-header-actions">
+            <button id="refreshResultsBtn" type="button">Refresh</button>
+            <a class="secondary-action" href="/runner">Run again</a>
+            <a id="evidenceDownload" class="secondary-action" href="#" download="spec2code-evidence.json">Download evidence</a>
+          </div>
         </header>
 
-        <div class="layout layout-results">
-          <section class="panel full-width results-summary">
-            <div>
-              <h2>Run Summary</h2>
-              <p id="resultsSummaryText" class="muted-note">Loading latest result...</p>
-            </div>
-            <div id="artifactLinksResults" class="artifact-links"></div>
-            <div class="row-actions">
-              <button id="refreshResultsBtn" type="button">Refresh</button>
-              <a id="reportLinkResults" href="/reports/last-run.html" target="_blank" rel="noopener">Open detailed report</a>
-            </div>
-          </section>
-
-          <section class="panel">
-            <h2>Critic Scores</h2>
-            <div id="criticBars" class="bars"></div>
-          </section>
-
-          <section class="panel">
-            <h2>Outcome Split</h2>
-            <div class="muted-note">Distribution of critic outcomes in the latest sample.</div>
-            <div id="outcomePie" class="pie"></div>
-            <div id="outcomeLegend" class="legend"></div>
-          </section>
-
-          <section class="panel">
-            <h2>Critic Time</h2>
-            <div class="muted-note">Relative elapsed time for each critic.</div>
-            <div id="criticTimes" class="bars"></div>
-          </section>
-
-          <section class="panel">
-            <h2>Finding Severity</h2>
-            <div class="muted-note">Diagnostics by severity across all enabled critics.</div>
-            <div id="severityBars" class="bars"></div>
-          </section>
+        <div class="results-layout">
+          <section id="metricCards" class="metric-cards" aria-label="Run summary"></section>
 
           <section class="panel full-width">
-            <h2>Detailed Report</h2>
-            <iframe id="reportFrame" title="latest report" class="report-frame"></iframe>
+            <div class="section-heading"><div><h2>Critic overview</h2><p>Choose a critic to focus findings and evidence.</p></div></div>
+            <div class="table-scroll"><table class="critic-table"><thead><tr><th>Critic</th><th>Status</th><th>Score</th><th>Findings</th><th>Duration</th><th>Main issue</th></tr></thead><tbody id="criticOverview"></tbody></table></div>
+          </section>
+
+          <section class="panel analysis-panel">
+            <h2>Outcome distribution</h2>
+            <div id="outcomeDistribution" class="stacked-distribution"></div>
+          </section>
+          <section class="panel analysis-panel">
+            <h2>Runtime profile</h2>
+            <div id="runtimeProfile" class="runtime-profile"></div>
+          </section>
+
+          <section class="panel full-width findings-panel">
+            <div class="section-heading"><div><h2>Findings</h2><p id="findingsCount">No findings loaded.</p></div></div>
+            <div class="finding-controls">
+              <input id="findingSearch" type="search" placeholder="Search diagnostics" aria-label="Search diagnostics" />
+              <select id="findingCriticFilter" aria-label="Filter by critic"><option value="">All critics</option></select>
+              <select id="findingSeverityFilter" aria-label="Filter by severity"><option value="">All severities</option><option value="error">Errors</option><option value="warning">Warnings</option><option value="info">Informational</option></select>
+            </div>
+            <div class="table-scroll"><table class="findings-table"><thead><tr><th>Severity</th><th>Critic</th><th>Location</th><th>Rule</th><th>Message</th><th></th></tr></thead><tbody id="findingsTable"></tbody></table></div>
+          </section>
+
+          <section class="panel full-width evidence-source-panel">
+            <div class="source-sidebar"><h2>Evidence</h2><div id="evidenceSummary" class="evidence-summary"></div><div id="artifactLinksResults" class="artifact-links"></div></div>
+            <div class="source-main">
+              <div class="source-tabs" role="tablist"><button class="source-tab active" data-source="c" type="button">Source</button><button class="source-tab" data-source="header" type="button">Header</button><button class="source-tab" data-source="diagnostic" type="button">Diagnostic</button></div>
+              <div id="sourceViewer" class="source-viewer" aria-label="Generated source code"></div>
+              <article id="diagnosticViewer" class="diagnostic-viewer hidden" aria-live="polite"></article>
+            </div>
           </section>
         </div>
       </main>
