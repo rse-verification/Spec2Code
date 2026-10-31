@@ -9,13 +9,13 @@ from typing import Any, Dict, List, Optional
 
 from spec2code.pipeline_modules.experiment_parameters import format_prompt
 from spec2code.pipeline_modules.critics.critics_runner import build_critics_from_names
+from spec2code.workspace import WorkspacePaths, apply_project_defaults
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-OUTPUT_ROOT = Path(os.getenv("SPEC2CODE_OUTPUT_ROOT", str(REPO_ROOT.parent / "spec2code_output"))).resolve()
-CASE_STUDIES_ROOT = Path(
-    os.getenv("SPEC2CODE_CASE_STUDIES_ROOT", str(REPO_ROOT.parent / "spec2code_case_studies"))
-).resolve()
+_WORKSPACE = WorkspacePaths.from_env(repo_root=REPO_ROOT)
+OUTPUT_ROOT = _WORKSPACE.output
+CASE_STUDIES_ROOT = _WORKSPACE.case_studies
 GUI_TEMPLATES_DIR = (REPO_ROOT / "config" / "gui_templates").resolve()
 
 
@@ -232,6 +232,8 @@ def _validate_and_prepare_one(cfg: Dict[str, Any], base_dir: str, *, solvers: li
     selected_prompt_template = _require_str(cfg, "selected_prompt_template")
     llms_used = _require_list_str(cfg, "llms_used")
     n_programs_generated = _require_int(cfg, "n_programs_generated")
+    if n_programs_generated < 1:
+        raise ValueError("Config error: 'n_programs_generated' must be >= 1.")
 
     max_generation_iterations = int(cfg.get("max_generation_iterations", 0))
 
@@ -416,6 +418,11 @@ def load_and_prepare_configs(config_path: str, *, solvers: list) -> List[Prepare
     for i, cfg in enumerate(data):
         if not isinstance(cfg, dict):
             raise ValueError(f"Config error: item {i} must be an object/dict.")
-        prepared.append(_validate_and_prepare_one(cfg, base_dir, solvers=solvers))
+        expanded = apply_project_defaults(
+            cfg,
+            base_dir=Path(base_dir),
+            repo_root=REPO_ROOT,
+        )
+        prepared.append(_validate_and_prepare_one(expanded, base_dir, solvers=solvers))
 
     return prepared

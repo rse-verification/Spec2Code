@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from spec2code.core.artifacts import PipelineSettings, _copy_tree_flat, _ensure_dir, process_llm_generated_code
-from spec2code.core.llm_output_parser import extract_llm_response_info
+from spec2code.core.llm_output_parser import ModelOutputError, extract_llm_response_info
 from spec2code.core.spec_injection import _inject_module_state_constants
 from spec2code.pipeline_modules.filesystem_io import copy_files, export_json, write_file
 from spec2code.pipeline_modules.runtime import Runtime
@@ -240,6 +240,13 @@ def _build_repair_prompt(
             "",
         ])
 
+    if attempt_entry.get("error") and attempt_entry.get("raw_output") and not code:
+        repair_prompt.extend([
+            "Previous unparseable model response:",
+            str(attempt_entry["raw_output"]),
+            "",
+        ])
+
     repair_prompt.extend([
         "===== Failed Verification =====",
         "",
@@ -373,6 +380,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
             max_generation_iterations = max(1, max_generation_iterations)
 
             attempts_made = 0
+            attempt_history: List[Dict[str, Any]] = []
 
             entry: Dict[str, Any] = {}
 
@@ -417,8 +425,19 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
 
 
 
-                entry = {}
-                entry.update(extract_llm_response_info(output_llm))
+                try:
+                    entry = extract_llm_response_info(output_llm)
+                except ModelOutputError as exc:
+                    entry = {
+                        "error": str(exc),
+                        "raw_output": exc.raw_output,
+                        "critics_success": False,
+                        "verify_success": False,
+                        "critics_results": [],
+                        "verify_message": "Model response could not be parsed; critics were not run.",
+                    }
+                if not entry.get("exact_model_used") or entry["exact_model_used"] == "unknown":
+                    entry["exact_model_used"] = llm_name
                 entry["filled_prompt"] = repair_prompt
                 entry["generation_iteration"] = gen_iter
 
@@ -478,6 +497,18 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
                 export_json(os.path.join(attempt_dir, "output.json"), entry)
                 write_file(os.path.join(attempt_dir, "output.txt"), _render_critic_timing_report(entry))
 
+                # Retain compact evidence for repair-progress figures in the final report.
+                attempt_history.append({
+                    "generation_iteration": gen_iter,
+                    "total_elapsed_time_attempt": elapsed_attempt,
+                    "critics_success": entry.get("critics_success"),
+                    "error": entry.get("error"),
+                    "critics_results": [
+                        {key: result[key] for key in ("tool", "success", "score", "elapsed_time_s") if key in result}
+                        for result in entry.get("critics_results", [])
+                    ],
+                })
+
                 if stop:
                     break
 
@@ -496,6 +527,7 @@ def execute_pipeline_prepared(prep: PreparedConfig, *, runtime: Runtime) -> None
             entry["total_elapsed_time_program"] = elapsed_program
             entry["max_generation_iterations"] = max_generation_iterations
             entry["generation_attempt_count"] = attempts_made
+            entry["generation_attempts"] = attempt_history
             _log(
                 f"  [program {i+1}/{cfg.n_programs_generated}] done in {_fmt_duration(elapsed_program)} "
                 f"| avg {_fmt_duration(avg_program)} | eta {_fmt_duration(eta_programs)}"

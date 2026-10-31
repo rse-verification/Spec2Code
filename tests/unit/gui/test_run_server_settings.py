@@ -417,3 +417,61 @@ def test_artifact_http_api_only_serves_files_under_output_root(tmp_path, monkeyp
         server.shutdown()
         server.server_close()
         thread.join(timeout=3)
+
+
+def test_model_catalog_disables_non_generation_models_and_keeps_yaml_aliases(monkeypatch):
+    monkeypatch.setattr(run_server, "_discover_provider_models", lambda env: (["openai/gpt-5", "openai/text-embedding-3-small", "ollama/nomic-embed-text", "vllm/org/code"], []))
+    monkeypatch.setattr(run_server, "_credential_ready_models", lambda env: (["my-deployment"], {"missing-key-model": "missing API key"}))
+    monkeypatch.setattr(run_server, "_list_bedrock_models", lambda env, **kw: (["bedrock/text-model", "bedrock-profile/my-profile"], None))
+    payload = run_server._compute_models_payload({})
+    assert set(payload["all_models"]) == {"openai/gpt-5", "vllm/org/code", "my-deployment", "bedrock/text-model", "bedrock-profile/my-profile"}
+    assert "openai/text-embedding-3-small" in payload["unavailable_models"]
+    assert "ollama/nomic-embed-text" in payload["unavailable_models"]
+
+
+def test_custom_openai_endpoint_is_used_for_discovery_and_cache(monkeypatch):
+    calls = []
+    class FakeClient:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+            self.models = self
+
+        def list(self):
+            return [{"id": "text-model"}, {"id": None}]
+
+    monkeypatch.setattr(run_server.llms, "OpenAI", FakeClient)
+    env = {"OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": "http://proxy.test/v1"}
+    models, _ = run_server._discover_provider_models(env)
+    assert "openai/text-model" in models
+    assert "openai/None" not in models
+    assert calls[0]["base_url"] == env["OPENAI_BASE_URL"]
+    assert run_server._models_cache_key(env) != run_server._models_cache_key({**env, "OPENAI_BASE_URL": "http://other.test/v1"})
+
+
+def test_sdk_model_pages_are_fully_iterated():
+    class Pages:
+        data = [{"id": "first"}]
+
+        def has_next_page(self):
+            return True
+
+        def __iter__(self):
+            return iter([{"id": "first"}, {"id": "second"}])
+
+    assert run_server._model_ids(Pages()) == ["first", "second"]
+
+
+def test_bedrock_filters_non_text_inactive_and_provisioned_only_models():
+    models = run_server._extract_bedrock_model_names({"modelSummaries": [
+        {"modelId": "text-model", "inputModalities": ["TEXT"], "outputModalities": ["TEXT"], "inferenceTypesSupported": ["ON_DEMAND"]},
+        {"modelId": "provisioned", "inferenceTypesSupported": ["PROVISIONED"]},
+        {"modelId": "image-model", "outputModalities": ["IMAGE"]},
+        {"modelId": "old-model", "modelLifecycle": {"status": "LEGACY"}},
+    ]})
+    assert models == ["bedrock/text-model"]
+    profiles = run_server._extract_bedrock_inference_profile_names({"inferenceProfileSummaries": [
+        {"inferenceProfileId": "good", "status": "ACTIVE"},
+        {"inferenceProfileId": "disabled", "status": "INACTIVE"},
+        {"inferenceProfileId": "opaque", "models": [{"modelArn": "arn:aws:bedrock:region::foundation-model/amazon.nova-canvas-v1:0"}]},
+    ]})
+    assert profiles == ["bedrock-profile/good"]

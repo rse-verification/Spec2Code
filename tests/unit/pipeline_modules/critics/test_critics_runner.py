@@ -9,6 +9,7 @@ from spec2code.pipeline_modules.critics.critics_compile import CompileCritic
 from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic
 from spec2code.pipeline_modules.critics.critics_esbmc import ESBMCCritic
 from spec2code.pipeline_modules.critics.critics_framac_wp import FramaCWPCritic
+from spec2code.pipeline_modules.critics.critics_no_loops import NoLoopsCritic
 from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
 from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
 
@@ -59,6 +60,7 @@ def test_run_critics_uses_the_configured_execution_order():
         OrderedCritic("compile", True, 1.0),
         OrderedCritic("framac-wp", True, 1.0),
         OrderedCritic("vernfr-control-flow", True, 1.0),
+        OrderedCritic("polyspace-bug-finder", True, 1.0),
     ]
 
     critics_runner.run_critics_on_artifacts(
@@ -72,6 +74,7 @@ def test_run_critics_uses_the_configured_execution_order():
         "compile",
         "framac-wp",
         "cppcheck-misra",
+        "polyspace-bug-finder",
         "vernfr-control-flow",
         "vernfr-data-flow",
         "binary-size",
@@ -95,14 +98,15 @@ def test_build_default_critics_respects_framac_options():
         },
     )
 
-    assert len(critics) == 5
+    assert len(critics) == 6
     assert isinstance(critics[0], CompileCritic)
-    assert isinstance(critics[1], FramaCWPCritic)
-    assert isinstance(critics[2], CppcheckMisraCritic)
-    assert isinstance(critics[3], VernfrCritic)
+    assert isinstance(critics[1], NoLoopsCritic)
+    assert isinstance(critics[2], FramaCWPCritic)
+    assert isinstance(critics[3], CppcheckMisraCritic)
     assert isinstance(critics[4], VernfrCritic)
+    assert isinstance(critics[5], VernfrCritic)
 
-    framac = critics[1]
+    framac = critics[2]
     assert framac.wp_timeout == 9
     assert framac.smoke_tests is True
     assert framac.model == "typed"
@@ -132,7 +136,18 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
         solvers=["Alt-Ergo"],
         timeout=60,
         critic_options={
-            "cppcheck-misra": {"timeout": 123, "misra_rules_path": custom_rules},
+            "cppcheck-misra": {
+                "timeout": 123,
+                "misra_rules_path": custom_rules,
+                "cppcheck_enable_all": True,
+                "cppcheck_inconclusive": False,
+                "cppcheck_check_level": "normal",
+                "cppcheck_platform": "avr8",
+                "cppcheck_max_ctu_depth": 4,
+                "cppcheck_jobs": 2,
+                "cppcheck_gate_warnings": False,
+                "cppcheck_addons": "threadsafety, y2038",
+            },
             "framac-wp": {"timeout": 77, "wp_timeout": 5, "model": "typed", "rte": False},
             "vernfr-control-flow": {"timeout": 41, "script_path": custom_script},
             "valgrind": {"heap_limit_bytes": 2048, "stack_limit_bytes": 1024},
@@ -147,6 +162,14 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     assert isinstance(cpp, CppcheckMisraCritic)
     assert cpp.timeout == 123
     assert cpp.misra_rules_path == custom_rules
+    assert cpp.enable_all is True
+    assert cpp.inconclusive is False
+    assert cpp.check_level == "normal"
+    assert cpp.platform == "avr8"
+    assert cpp.max_ctu_depth == 4
+    assert cpp.jobs == 2
+    assert cpp.gate_warnings is False
+    assert cpp.addons == ["threadsafety", "y2038"]
 
     assert isinstance(framac, FramaCWPCritic)
     assert framac.timeout == 77
@@ -163,6 +186,41 @@ def test_build_critics_from_names_applies_per_critic_options(tmp_path):
     assert valgrind.massif is True
     assert valgrind.heap_limit_bytes == 2048
     assert valgrind.stack_limit_bytes == 1024
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_build_and_run_no_loops_forwards_context_and_failure():
+    critic = critics_runner.build_critics_from_names(
+        names=["no-loops"],
+        solvers=[],
+        timeout=60,
+        critic_options={"no-loops": {"clang": "clang-18", "timeout": 17}},
+    )[0]
+    assert isinstance(critic, NoLoopsCritic)
+    assert critic.clang == "clang-18"
+    captured = {}
+
+    def fake_run(inp):
+        captured.update(inp)
+        return {"tool": "no-loops", "success": False, "score": 0.0, "summary": "loop", "metrics": {}, "findings": [], "raw_output": ""}
+
+    critic.run = fake_run
+    result = critics_runner.run_critics_on_artifacts(
+        critics=[critic],
+        raw_c_path="generated.c",
+        timeout=60,
+        include_dirs=["headers"],
+        defines=["FEATURE=1"],
+        critic_configs={"no-loops": {"timeout": 17, "clang_flags": ["-std=c11"]}},
+    )
+
+    assert result["critics_success"] is False
+    assert result["critics_score"] == 0.0
+    assert captured["timeout"] == 17
+    assert captured["context"]["include_dirs"] == ["headers"]
+    assert captured["context"]["defines"] == ["FEATURE=1"]
+    assert captured["context"]["clang_flags"] == ["-std=c11"]
 
 
 @pytest.mark.unit

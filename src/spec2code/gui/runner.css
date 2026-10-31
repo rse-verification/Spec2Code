@@ -28,6 +28,17 @@ html[data-theme="light"] {
   box-sizing: border-box;
 }
 
+.model-checklist { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; padding: 8px; margin-top: 8px; }
+.model-checklist fieldset { border: 0; margin: 0; padding: 6px; min-width: 0; }
+.model-checklist legend { color: var(--accent); font-weight: 600; font-size: 13px; }
+.model-checklist .model-choice { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 8px; cursor: pointer; overflow-wrap: anywhere; }
+.model-checklist .model-choice[hidden], .model-checklist fieldset[hidden] { display: none; }
+.model-choice input { width: auto; margin: 3px 0; flex: 0 0 auto; }
+.model-choice small { display: block; color: var(--muted); font-size: 11px; }
+.model-choice:has(input:checked) { background: var(--surface-soft); border-radius: 6px; }
+.status-label.unknown, .status-pill.unknown { color: var(--muted); }
+.distribution-row i.unknown { background: var(--muted); }
+
 html,
 body {
   height: 100%;

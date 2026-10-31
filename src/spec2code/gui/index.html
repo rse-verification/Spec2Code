@@ -6,6 +6,7 @@
     <title>spec2code Report Viewer</title>
     <script src="/theme.js"></script>
     <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="analytics.css" />
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/monokai.min.css" />
   </head>
   <body>
@@ -50,13 +51,15 @@
 
           <section class="content">
         <div class="tabs">
-          <button class="tab active" data-tab="code">Code</button>
+          <button class="tab active" data-tab="analytics">Statistics &amp; figures</button>
+          <button class="tab" data-tab="code">Code</button>
           <button class="tab" data-tab="critics">Critics Output</button>
           <button class="tab" data-tab="prompt">Prompt</button>
           <button class="tab" data-tab="raw">Raw Output</button>
         </div>
 
-        <div id="tab-code" class="tab-panel active">
+        <div id="tab-analytics" class="tab-panel active"><div id="criticAnalytics" class="panel"></div></div>
+        <div id="tab-code" class="tab-panel">
           <div class="panel">
             <div class="panel-title">C Implementation <span id="codeArtifactLink"></span></div>
             <div class="panel-hint">Highlighted lines include an annotation marker. Hover or focus it to see the critic finding.</div>
@@ -114,6 +117,7 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/c.min.js"></script>
+    <script src="analytics.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

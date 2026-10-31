@@ -132,7 +132,7 @@ function renderAvailableModels(payload) {
       name.textContent = model.name || "Unknown model";
       const state = document.createElement("span");
       state.className = "model-state";
-      state.textContent = ready ? "Ready" : (model.reason || "Configure provider");
+      state.textContent = ready ? "Selectable" : (model.reason || "Configure provider");
       item.append(name, state);
       list.appendChild(item);
     });

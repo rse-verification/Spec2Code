@@ -1,0 +1,4 @@
+# Runtime dependencies plus tools for Python, browser and coverage checks.
+-r requirements.txt
+coverage>=7.6,<8
+playwright>=1.49,<2

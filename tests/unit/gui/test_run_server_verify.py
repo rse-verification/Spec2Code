@@ -232,6 +232,7 @@ def test_run_pipeline_from_template_resolves_dotdot_paths_from_template_dir(tmp_
     monkeypatch.setattr(run_server, "REPO_ROOT", tmp_path)
     monkeypatch.setattr(run_server, "GUI_TMP_DIR", tmp_path / "output" / "gui_tmp")
     monkeypatch.setenv("SPEC2CODE_GUI_INCLUDE_TEST_MODELS", "1")
+    monkeypatch.setattr(run_server, "_validate_selected_models", lambda *args: None)
 
     tpl = _write(
         tmp_path / "input" / "sgmm-config.json",

@@ -1,0 +1,9 @@
+[run]
+branch = True
+source = src/spec2code
+
+[report]
+precision = 1
+show_missing = True
+# Initial portable-suite baseline. Raise this as critical-path coverage grows.
+fail_under = 65

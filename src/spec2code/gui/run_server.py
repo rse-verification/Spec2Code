@@ -4,6 +4,7 @@ import argparse
 import base64
 import copy
 import hashlib
+import io
 import json
 import os
 import re
@@ -14,6 +15,7 @@ import tempfile
 import threading
 import time
 import uuid
+import zipfile
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -28,14 +30,14 @@ from spec2code.pipeline_modules.critics.critics_registry import (
 )
 from spec2code.pipeline_modules.critics.critics_runner import build_critics_from_names, run_critics_on_artifacts
 from spec2code.gui.settings_store import SettingsStore
+from spec2code.workspace import WorkspacePaths, discover_project, validate_project_id
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GUI_DIR = Path(__file__).resolve().parent
-OUTPUT_ROOT = Path(os.getenv("SPEC2CODE_OUTPUT_ROOT", str(REPO_ROOT.parent / "spec2code_output"))).resolve()
-INPUT_ROOT_DEFAULT = Path(os.getenv("SPEC2CODE_INPUT_ROOT", str(REPO_ROOT.parent / "spec2code_input"))).resolve()
-CASE_STUDIES_ROOT_DEFAULT = Path(
-    os.getenv("SPEC2CODE_CASE_STUDIES_ROOT", str(REPO_ROOT.parent / "spec2code_case_studies"))
-).resolve()
+WORKSPACE = WorkspacePaths.from_env(repo_root=REPO_ROOT)
+OUTPUT_ROOT = WORKSPACE.output
+INPUT_ROOT_DEFAULT = WORKSPACE.input
+CASE_STUDIES_ROOT_DEFAULT = WORKSPACE.case_studies
 REPORTS_DIR = OUTPUT_ROOT / "reports"
 GUI_TMP_DIR = OUTPUT_ROOT / "gui_tmp"
 GUI_TEMPLATES_DIR = REPO_ROOT / "config" / "gui_templates"
@@ -44,6 +46,7 @@ MODELS_CACHE_FILE = GUI_TMP_DIR / "models_cache.json"
 ALLOWED_RUNTIME_ENV_KEYS = {
     "ANTHROPIC_API_KEY",
     "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
     "AWS_PROFILE",
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
@@ -56,6 +59,7 @@ ALLOWED_RUNTIME_ENV_KEYS = {
     "VLLM_BASE_URL",
     "SPEC2CODE_INPUT_ROOT",
     "SPEC2CODE_CASE_STUDIES_ROOT",
+    "SPEC2CODE_WORKSPACE_ROOT",
 }
 
 SETTINGS_STORE = SettingsStore()
@@ -67,6 +71,8 @@ MODELS_CACHE_TTL_S = 60.0
 
 _RUN_JOBS_LOCK = threading.Lock()
 _RUN_JOBS: dict[str, dict[str, Any]] = {}
+_NATIVE_IMPORT_LOCK = threading.Lock()
+_NATIVE_IMPORT_PATHS: dict[str, tuple[Path, float]] = {}
 
 TEST_MODELS = [
     "test-llm-shutdown",
@@ -81,13 +87,16 @@ def _settings_root(raw: str, default: Path) -> Path:
 
 
 def _current_input_root(runtime_env: dict[str, str] | None = None) -> Path:
-    env = runtime_env or _effective_runtime_env()
-    return _settings_root(env.get("SPEC2CODE_INPUT_ROOT", ""), INPUT_ROOT_DEFAULT)
+    return _current_workspace(runtime_env).input
 
 
 def _current_case_studies_root(runtime_env: dict[str, str] | None = None) -> Path:
+    return _current_workspace(runtime_env).case_studies
+
+
+def _current_workspace(runtime_env: dict[str, str] | None = None) -> WorkspacePaths:
     env = runtime_env or _effective_runtime_env()
-    return _settings_root(env.get("SPEC2CODE_CASE_STUDIES_ROOT", ""), CASE_STUDIES_ROOT_DEFAULT)
+    return WorkspacePaths.from_env(repo_root=REPO_ROOT, env=env)
 
 
 def _parse_why3_solvers(output: str) -> list[str]:
@@ -346,6 +355,25 @@ def _native_pick_path(*, kind: str, ext: str = "") -> tuple[str | None, str | No
                 pass
 
 
+def _register_native_import_path(path: str) -> str:
+    token = uuid.uuid4().hex
+    now = time.time()
+    with _NATIVE_IMPORT_LOCK:
+        expired = [key for key, (_, created) in _NATIVE_IMPORT_PATHS.items() if now - created > 300]
+        for key in expired:
+            _NATIVE_IMPORT_PATHS.pop(key, None)
+        _NATIVE_IMPORT_PATHS[token] = (Path(path).expanduser().resolve(), now)
+    return token
+
+
+def _consume_native_import_path(token: str) -> Path:
+    with _NATIVE_IMPORT_LOCK:
+        entry = _NATIVE_IMPORT_PATHS.pop(str(token or ""), None)
+    if entry is None or time.time() - entry[1] > 300:
+        raise ValueError("Folder selection expired. Select the project folder again.")
+    return entry[0]
+
+
 def _stage_uploaded_picker_file(*, filename: str, content_b64: str) -> tuple[str | None, str | None]:
     name = os.path.basename(str(filename or "").strip()) or "picked_file"
     try:
@@ -364,7 +392,10 @@ def _stage_uploaded_picker_file(*, filename: str, content_b64: str) -> tuple[str
     stem, ext = os.path.splitext(name)
     safe_stem = re.sub(r"[^A-Za-z0-9._-]", "_", stem) or "picked_file"
     safe_ext = re.sub(r"[^A-Za-z0-9.]", "", ext)[:16]
-    out_path = uploads_dir / f"{safe_stem}-{uuid.uuid4().hex[:10]}{safe_ext}"
+    # Keep the basename intact: interfaces and C #include directives depend on it.
+    upload_dir = uploads_dir / uuid.uuid4().hex
+    upload_dir.mkdir()
+    out_path = upload_dir / f"{safe_stem}{safe_ext}"
 
     try:
         out_path.write_bytes(raw)
@@ -372,6 +403,217 @@ def _stage_uploaded_picker_file(*, filename: str, content_b64: str) -> tuple[str
         return None, f"Failed to store uploaded file: {exc}"
 
     return str(out_path), None
+
+
+def _list_managed_projects(runtime_env: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    workspace = _current_workspace(runtime_env)
+    roots = [
+        (workspace.projects, "managed"),
+        (workspace.case_studies, "case-study"),
+        (workspace.input, "input"),
+    ]
+    projects: dict[str, dict[str, Any]] = {}
+    for root, source in roots:
+        if not root.is_dir():
+            continue
+        for path in sorted(item for item in root.iterdir() if item.is_dir() and not item.name.startswith(".")):
+            if path.name in projects:
+                continue
+            try:
+                layout = discover_project(path)
+                item = layout.as_dict()
+                item["source"] = source
+            except Exception as exc:
+                item = {
+                    "id": path.name,
+                    "root": str(path.resolve()),
+                    "ready": False,
+                    "missing": [],
+                    "error": str(exc),
+                    "source": source,
+                }
+            projects[path.name] = item
+    return [projects[key] for key in sorted(projects)]
+
+
+def _safe_project_name(value: str, fallback: str) -> str:
+    candidate = str(value or "").strip()
+    if not candidate:
+        candidate = re.sub(r"[^A-Za-z0-9._-]+", "-", fallback).strip("-._") or "project"
+    return validate_project_id(candidate)
+
+
+def _validate_imported_project(path: Path, project_name: str) -> dict[str, Any]:
+    layout = discover_project(path, project_name)
+    if not layout.ready:
+        raise ValueError(f"Imported project is incomplete: missing {', '.join(layout.missing)}.")
+    return layout.as_dict()
+
+
+def _import_project_folder(
+    *,
+    source_path: str,
+    project_name: str = "",
+    runtime_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    source = Path(source_path).expanduser().resolve()
+    if not source.is_dir():
+        raise FileNotFoundError(f"Project folder not found: {source}")
+    name = _safe_project_name(project_name, source.name)
+    workspace = _current_workspace(runtime_env)
+    workspace.ensure()
+    destination = workspace.projects / name
+    if destination.exists():
+        raise FileExistsError(f"Project '{name}' already exists in the managed workspace.")
+    try:
+        workspace.projects.resolve().relative_to(source)
+    except ValueError:
+        pass
+    else:
+        raise ValueError("Cannot import a folder that contains the managed projects directory.")
+    file_count = 0
+    total_size = 0
+    for root, directories, files in os.walk(source, followlinks=False):
+        root_path = Path(root)
+        for directory in list(directories):
+            if (root_path / directory).is_symlink():
+                raise ValueError(f"Symbolic links are not allowed in imported projects: {root_path / directory}")
+        for filename in files:
+            path = root_path / filename
+            if path.is_symlink():
+                raise ValueError(f"Symbolic links are not allowed in imported projects: {path}")
+            file_count += 1
+            total_size += path.stat().st_size
+            if file_count > 5000:
+                raise ValueError("Project folder contains too many files (maximum 5000).")
+            if total_size > 200 * 1024 * 1024:
+                raise ValueError("Project folder is too large (maximum 200 MB).")
+    with tempfile.TemporaryDirectory(prefix=".project-import-", dir=str(workspace.projects)) as temp_dir:
+        staged = Path(temp_dir) / name
+        shutil.copytree(source, staged)
+        _validate_imported_project(staged, name)
+        staged.rename(destination)
+    project = discover_project(destination, name).as_dict()
+    project["source"] = "managed"
+    return project
+
+
+def _import_project_zip(
+    *,
+    filename: str,
+    content_b64: str,
+    project_name: str = "",
+    runtime_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    try:
+        raw = base64.b64decode(str(content_b64 or ""), validate=True)
+    except Exception as exc:
+        raise ValueError("Invalid base64 ZIP content.") from exc
+    if len(raw) > 50 * 1024 * 1024:
+        raise ValueError("Project ZIP is too large (maximum compressed size is 50 MB).")
+
+    archive_name = Path(filename or "project.zip").stem
+    name = _safe_project_name(project_name, archive_name)
+    workspace = _current_workspace(runtime_env)
+    workspace.ensure()
+    destination = workspace.projects / name
+    if destination.exists():
+        raise FileExistsError(f"Project '{name}' already exists in the managed workspace.")
+
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+        members = archive.infolist()
+        if len(members) > 5000:
+            raise ValueError("Project ZIP contains too many entries (maximum 5000).")
+        if sum(member.file_size for member in members) > 200 * 1024 * 1024:
+            raise ValueError("Project ZIP is too large after extraction (maximum 200 MB).")
+        with tempfile.TemporaryDirectory(prefix=".project-import-", dir=str(workspace.projects)) as temp_dir:
+            staging_root = Path(temp_dir)
+            for member in members:
+                normalized = member.filename.replace("\\", "/")
+                parts = [part for part in normalized.split("/") if part not in {"", "."}]
+                if not parts or ".." in parts or normalized.startswith("/"):
+                    if not parts:
+                        continue
+                    raise ValueError(f"Unsafe path in project ZIP: {member.filename}")
+                file_type = (member.external_attr >> 16) & 0o170000
+                if file_type == 0o120000:
+                    raise ValueError(f"Symbolic links are not allowed in project ZIPs: {member.filename}")
+                target = staging_root.joinpath(*parts)
+                if member.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with archive.open(member) as source, target.open("wb") as output:
+                    shutil.copyfileobj(source, output)
+
+            entries = [entry for entry in staging_root.iterdir()]
+            content_root = entries[0] if len(entries) == 1 and entries[0].is_dir() else staging_root
+            _validate_imported_project(content_root, name)
+            shutil.copytree(content_root, destination)
+
+    project = discover_project(destination, name).as_dict()
+    project["source"] = "managed"
+    return project
+
+
+def _import_project_files(
+    *, files: Any, project_name: str, selections: Any = None,
+    runtime_env: dict[str, str] | None = None,
+) -> dict[str, Any]:
+    """Import browser-selected files together, preserving relative include paths."""
+    if not isinstance(files, list) or not files or len(files) > 5000:
+        raise ValueError("Select between 1 and 5000 project files.")
+    name = validate_project_id(project_name)
+    workspace = _current_workspace(runtime_env)
+    workspace.ensure()
+    destination = workspace.projects / name
+    if destination.exists():
+        raise FileExistsError(f"Project '{name}' already exists in the managed workspace. Choose another name.")
+    with tempfile.TemporaryDirectory(prefix=".project-upload-", dir=str(workspace.projects)) as temp_dir:
+        staged = Path(temp_dir) / name
+        staged.mkdir()
+        total_size = 0
+        seen: set[str] = set()
+        for item in files:
+            if not isinstance(item, dict):
+                raise ValueError("Each file must have a relative path and base64 content.")
+            path = str(item.get("path", "")).replace("\\", "/")
+            parts = path.split("/")
+            if not path or any(part in {"", ".", ".."} or ":" in part or "\x00" in part for part in parts):
+                raise ValueError(f"Unsafe project file path: {path}")
+            if path.casefold() in seen:
+                raise ValueError(f"Duplicate project file: {path}")
+            seen.add(path.casefold())
+            try:
+                raw = base64.b64decode(str(item.get("content_b64", "")), validate=True)
+            except Exception as exc:
+                raise ValueError(f"Invalid base64 content for {path}.") from exc
+            total_size += len(raw)
+            if total_size > 50 * 1024 * 1024:
+                raise ValueError("Selected files are too large (maximum 50 MB).")
+            target = staged.joinpath(*parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(raw)
+        if selections is not None:
+            if not isinstance(selections, dict):
+                raise ValueError("File selections must be an object.")
+            manifest_path = staged / "spec2code.project.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
+            if not isinstance(manifest, dict):
+                raise ValueError("Project manifest must be an object.")
+            if "headers" in selections and selections["headers"] != manifest.get("headers", "headers"):
+                # Old header-relative settings no longer describe the chosen directory.
+                manifest.pop("prompt_headers", None)
+                manifest.pop("include_dirs", None)
+            for key in ("spec", "interface", "headers", "verification_header"):
+                if key in selections:
+                    manifest[key] = selections[key]
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        _validate_imported_project(staged, name)
+        staged.rename(destination)
+    project = discover_project(destination, name).as_dict()
+    project["source"] = "managed"
+    return project
 
 
 def _serve_file(handler: BaseHTTPRequestHandler, file_path: Path, content_type: str) -> None:
@@ -495,6 +737,7 @@ def _models_cache_key(env: dict[str, str]) -> str:
         "AWS_REGION": str(env.get("AWS_REGION", "") or env.get("AWS_DEFAULT_REGION", "")),
         "ANTHROPIC_KEY": fingerprint("ANTHROPIC_API_KEY"),
         "OPENAI_KEY": fingerprint("OPENAI_API_KEY"),
+        "OPENAI_BASE_URL": str(env.get("OPENAI_BASE_URL", "")),
         "AWS_ACCESS_KEY": fingerprint("AWS_ACCESS_KEY_ID"),
         "AWS_SECRET_KEY": fingerprint("AWS_SECRET_ACCESS_KEY"),
         "AWS_SESSION_TOKEN": fingerprint("AWS_SESSION_TOKEN"),
@@ -504,35 +747,41 @@ def _models_cache_key(env: dict[str, str]) -> str:
         "VLLM_KEY": fingerprint("VLLM_API_KEY"),
     }
     fetch_flag = str(os.getenv("SPEC2CODE_GUI_FETCH_BEDROCK", "1"))
-    return json.dumps({"env": relevant_env, "fetch_bedrock": fetch_flag}, sort_keys=True)
+    providers, specs = llms.available_provider_specs()
+    for spec in providers.values():
+        for key, value in spec.items():
+            if key.endswith("_env") and isinstance(value, str):
+                relevant_env[value] = fingerprint(value)
+    config_hash = hashlib.sha256(json.dumps([providers, specs], sort_keys=True).encode()).hexdigest()
+    return json.dumps({"env": relevant_env, "fetch_bedrock": fetch_flag, "config": config_hash}, sort_keys=True)
 
 
 def _compute_models_payload(env: dict[str, str]) -> dict[str, Any]:
     default_models = _default_gui_models()
     discovered_models, notes = _discover_provider_models(env)
-    all_models = set(discovered_models)
+    configured, unavailable = _credential_ready_models(env)
+    all_models = set(discovered_models) | set(configured)
     bedrock_models, bedrock_note = _list_bedrock_models(env, timeout_s=10)
-    has_profiles = any(str(m).startswith("bedrock-profile/") for m in bedrock_models)
-    if has_profiles:
-        # When inference profiles are available, hide raw foundation model IDs
-        # to avoid selecting non-invokable on-demand Bedrock model names.
-        all_models = {m for m in all_models if not str(m).startswith("bedrock/")}
-        bedrock_models = [m for m in bedrock_models if str(m).startswith("bedrock-profile/")]
     all_models.update(bedrock_models)
+
+    for name in list(all_models):
+        provider, separator, model_id = name.partition("/")
+        reason = llms.generation_model_unavailable_reason(provider, model_id) if separator else None
+        if reason:
+            all_models.remove(name)
+            unavailable[name] = reason
 
     if bedrock_models:
         notes.append(f"Detected {len(bedrock_models)} Bedrock model(s) from AWS.")
-    if has_profiles:
-        notes.append("Using Bedrock inference profiles; hidden raw bedrock/<modelId> entries to prevent on-demand invocation errors.")
     if bedrock_note:
         notes.append(bedrock_note)
 
     return {
         "models": default_models,
         "all_models": sorted(all_models),
-        "providers": _group_models(sorted(all_models), {}),
-        "unavailable_models": {},
-        "note": " ".join(notes),
+        "providers": _group_models(sorted(all_models), unavailable),
+        "unavailable_models": unavailable,
+        "note": " ".join(notes + ["Listed text-generation models are selectable; listing does not verify inference permissions or quota. Unsupported model types are disabled."]),
     }
 
 
@@ -582,6 +831,7 @@ def _validate_selected_models(model_names: list[str], runtime_env: dict[str, str
 
 def _effective_runtime_env(extra: dict[str, str] | None = None) -> dict[str, str]:
     env = dict(os.environ)
+    env.setdefault("SPEC2CODE_WORKSPACE_ROOT", str(WORKSPACE.root))
     env.setdefault("SPEC2CODE_OUTPUT_ROOT", str(OUTPUT_ROOT))
     env.setdefault("SPEC2CODE_INPUT_ROOT", str(INPUT_ROOT_DEFAULT))
     env.setdefault("SPEC2CODE_CASE_STUDIES_ROOT", str(CASE_STUDIES_ROOT_DEFAULT))
@@ -710,7 +960,8 @@ def _redact_error(exc: Exception, env: dict[str, str]) -> str:
 
 
 def _model_ids(response: Any) -> list[str]:
-    items = getattr(response, "data", response)
+    # SDK pages iterate across subsequent pages; .data only exposes page one.
+    items = response if callable(getattr(response, "has_next_page", None)) else getattr(response, "data", response)
     if isinstance(items, dict):
         items = items.get("data", [])
     try:
@@ -718,9 +969,9 @@ def _model_ids(response: Any) -> list[str]:
     except TypeError:
         return []
     return sorted({
-        str(item.get("id") if isinstance(item, dict) else getattr(item, "id", "")).strip()
+        str((item.get("id") if isinstance(item, dict) else getattr(item, "id", "")) or "").strip()
         for item in iterator
-        if str(item.get("id") if isinstance(item, dict) else getattr(item, "id", "")).strip()
+        if (item.get("id") if isinstance(item, dict) else getattr(item, "id", None))
     })
 
 
@@ -738,12 +989,12 @@ def _discover_provider_models(env: dict[str, str]) -> tuple[list[str], list[str]
                 max_retries=0,
             )
             discovered.extend(f"{provider}/{model_id}" for model_id in _model_ids(client.models.list()))
-        except Exception:
-            notes.append(f"{provider} model discovery failed.")
+        except Exception as exc:
+            notes.append(f"{provider} model discovery failed: {_redact_error(exc, env)}")
 
     openai_key = str(env.get("OPENAI_API_KEY", "")).strip()
     if openai_key:
-        discover_openai_compatible("openai", "https://api.openai.com/v1", openai_key)
+        discover_openai_compatible("openai", str(env.get("OPENAI_BASE_URL") or "https://api.openai.com/v1"), openai_key)
     else:
         notes.append("OpenAI model discovery skipped: API key is not configured.")
 
@@ -754,8 +1005,8 @@ def _discover_provider_models(env: dict[str, str]) -> tuple[list[str], list[str]
 
             client = Anthropic(api_key=anthropic_key, timeout=10.0, max_retries=0)
             discovered.extend(f"anthropic/{model_id}" for model_id in _model_ids(client.models.list(limit=100)))
-        except Exception:
-            notes.append("Anthropic model discovery failed.")
+        except Exception as exc:
+            notes.append(f"Anthropic model discovery failed: {_redact_error(exc, env)}")
     else:
         notes.append("Anthropic model discovery skipped: API key is not configured.")
 
@@ -789,7 +1040,7 @@ def _test_provider_connection(provider_id: str) -> dict[str, Any]:
                 raise RuntimeError("OpenAI API key is not configured.")
             client = llms.OpenAI(
                 api_key=key,
-                base_url="https://api.openai.com/v1",
+                base_url=env.get("OPENAI_BASE_URL") or "https://api.openai.com/v1",
                 timeout=10.0,
                 max_retries=0,
             )
@@ -851,7 +1102,7 @@ def _credential_ready_models(env: dict[str, str]) -> tuple[list[str], dict[str, 
     unavailable: dict[str, str] = {}
     providers, specs = llms.available_provider_specs()
 
-    for name in _list_models():
+    for name in sorted(set(_list_models()) | set(specs)):
         if name in TEST_MODELS:
             available.append(name)
             continue
@@ -906,6 +1157,16 @@ def _extract_bedrock_model_names(payload: dict[str, Any]) -> list[str]:
         model_id = str(item.get("modelId") or "").strip()
         if not model_id:
             continue
+        if item.get("outputModalities") and "TEXT" not in item["outputModalities"]:
+            continue
+        if item.get("inputModalities") and "TEXT" not in item["inputModalities"]:
+            continue
+        if item.get("inferenceTypesSupported") is not None and "ON_DEMAND" not in item["inferenceTypesSupported"]:
+            continue
+        if (item.get("modelLifecycle") or {}).get("status", "ACTIVE") != "ACTIVE":
+            continue
+        if llms.generation_model_unavailable_reason("bedrock", model_id):
+            continue
         normalized = f"bedrock/{model_id}"
         if normalized in seen:
             continue
@@ -920,8 +1181,14 @@ def _extract_bedrock_inference_profile_names(payload: dict[str, Any]) -> list[st
     for item in payload.get("inferenceProfileSummaries", []) or []:
         if not isinstance(item, dict):
             continue
+        if item.get("status", "ACTIVE") != "ACTIVE":
+            continue
+        if any(llms.generation_model_unavailable_reason("bedrock", str(model.get("modelArn", ""))) for model in item.get("models", []) if isinstance(model, dict)):
+            continue
         profile_ref = str(item.get("inferenceProfileArn") or item.get("inferenceProfileId") or "").strip()
         if not profile_ref:
+            continue
+        if llms.generation_model_unavailable_reason("bedrock", profile_ref):
             continue
         normalized = f"bedrock-profile/{profile_ref}"
         if normalized in seen:
@@ -966,33 +1233,31 @@ def _list_bedrock_models(env: dict[str, str], *, timeout_s: int | None = None) -
         client = session.client("bedrock", **client_kwargs)
 
         profile_payload: dict[str, Any] = {"inferenceProfileSummaries": []}
-        next_token = None
-        while True:
-            kwargs: dict[str, Any] = {}
-            if next_token:
-                kwargs["nextToken"] = next_token
-            resp_profiles = client.list_inference_profiles(**kwargs)
-            profile_payload["inferenceProfileSummaries"].extend(resp_profiles.get("inferenceProfileSummaries", []) or [])
-            next_token = resp_profiles.get("nextToken")
-            if not next_token:
-                break
+        notes = []
+        try:
+            next_token = None
+            while True:
+                kwargs: dict[str, Any] = {"nextToken": next_token} if next_token else {}
+                resp_profiles = client.list_inference_profiles(**kwargs)
+                profile_payload["inferenceProfileSummaries"].extend(resp_profiles.get("inferenceProfileSummaries", []) or [])
+                next_token = resp_profiles.get("nextToken")
+                if not next_token:
+                    break
+        except Exception as exc:
+            notes.append(f"Bedrock profile discovery: {_redact_error(exc, env)}")
 
-        profile_names = _extract_bedrock_inference_profile_names(profile_payload)
-        if profile_names:
-            return profile_names, None
-
-        # Fallback: show foundation model ids when no inference profiles are available.
-        # These may still fail for models that require an inference profile ARN.
-        resp = client.list_foundation_models(byOutputModality="TEXT")
-        names = _extract_bedrock_model_names(resp or {})
+        names = _extract_bedrock_inference_profile_names(profile_payload)
+        try:
+            resp = client.list_foundation_models(byOutputModality="TEXT")
+            # Raw IDs are offered only when on-demand invocation is supported.
+            names.extend(_extract_bedrock_model_names(resp or {}))
+        except Exception as exc:
+            notes.append(f"Bedrock foundation model discovery: {_redact_error(exc, env)}")
         if not names:
-            return [], "AWS reachable, but no Bedrock text models/profiles were returned."
-        return names, "No Bedrock inference profiles found; showing foundation model IDs as fallback."
+            notes.append("No invokable Bedrock text models/profiles were listed in this region.")
+        return sorted(set(names)), " ".join(notes) or None
     except Exception as exc:
-        return [], (
-            "Bedrock models unavailable (credentials/session not ready). "
-            "Run `aws sso login --profile <your-profile>` and refresh models."
-        )
+        return [], f"Bedrock discovery failed: {_redact_error(exc, env)}"
 
 
 def _is_safe_repo_path(path: Path) -> bool:
@@ -2007,6 +2272,10 @@ class _Handler(BaseHTTPRequestHandler):
         if path == "/results.js":
             _serve_file(self, GUI_DIR / "results.js", "application/javascript; charset=utf-8")
             return
+        if path in {"/analytics.js", "/analytics.css"}:
+            content_type = "application/javascript" if path.endswith(".js") else "text/css"
+            _serve_file(self, GUI_DIR / path.lstrip("/"), f"{content_type}; charset=utf-8")
+            return
         if path == "/verify.js":
             _serve_file(self, GUI_DIR / "verify.js", "application/javascript; charset=utf-8")
             return
@@ -2055,6 +2324,18 @@ class _Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/templates":
             _json_response(self, {"templates": _list_templates()})
+            return
+        if path == "/api/projects":
+            workspace = _current_workspace()
+            _json_response(
+                self,
+                {
+                    "ok": True,
+                    "workspace_root": str(workspace.root),
+                    "projects_root": str(workspace.projects),
+                    "projects": _list_managed_projects(),
+                },
+            )
             return
         if path in {"/api/critics", "/api/critics/"}:
             catalog, detected = _build_critics_catalog()
@@ -2139,6 +2420,7 @@ class _Handler(BaseHTTPRequestHandler):
             "/api/settings/test",
             "/api/native-pick",
             "/api/upload-picker-file",
+            "/api/projects/import",
         }:
             _text_response(self, "Not found", status=404)
             return
@@ -2149,7 +2431,8 @@ class _Handler(BaseHTTPRequestHandler):
             _json_response(self, {"ok": False, "error": "Invalid Content-Length."}, status=400)
             return
 
-        if content_length > 2 * 1024 * 1024:
+        max_request_bytes = 70 * 1024 * 1024 if path == "/api/projects/import" else 15 * 1024 * 1024
+        if content_length > max_request_bytes:
             _json_response(self, {"ok": False, "error": "Request body is too large."}, status=413)
             return
 
@@ -2200,6 +2483,10 @@ class _Handler(BaseHTTPRequestHandler):
             if err:
                 _json_response(self, {"ok": False, "error": err}, status=500)
                 return
+            if chosen and str(payload.get("purpose", "")) == "project-import":
+                token = _register_native_import_path(chosen)
+                _json_response(self, {"ok": True, "cancelled": cancelled, "import_token": token}, status=200)
+                return
             _json_response(self, {"ok": True, "cancelled": cancelled, "path": chosen or ""}, status=200)
             return
 
@@ -2215,6 +2502,42 @@ class _Handler(BaseHTTPRequestHandler):
                 return
             assert staged_path is not None
             _json_response(self, {"ok": True, "path": staged_path}, status=200)
+            return
+
+        if path == "/api/projects/import":
+            try:
+                runtime_env = _effective_runtime_env()
+                project_name = str(payload.get("project_name", "") or "").strip()
+                import_token = str(payload.get("import_token", "") or "").strip()
+                if "files" in payload:
+                    project = _import_project_files(
+                        files=payload["files"], project_name=project_name,
+                        selections=payload.get("selections"), runtime_env=runtime_env,
+                    )
+                elif import_token:
+                    project = _import_project_folder(
+                        source_path=str(_consume_native_import_path(import_token)),
+                        project_name=project_name,
+                        runtime_env=runtime_env,
+                    )
+                else:
+                    filename = str(payload.get("filename", "") or "").strip()
+                    content_b64 = str(payload.get("content_b64", "") or "").strip()
+                    if not filename or not content_b64:
+                        raise ValueError("Provide a source folder or ZIP file.")
+                    project = _import_project_zip(
+                        filename=filename,
+                        content_b64=content_b64,
+                        project_name=project_name,
+                        runtime_env=runtime_env,
+                    )
+            except (FileExistsError, FileNotFoundError, ValueError, zipfile.BadZipFile) as exc:
+                _json_response(self, {"ok": False, "error": str(exc)}, status=400)
+                return
+            except Exception as exc:
+                _json_response(self, {"ok": False, "error": f"Failed to import project: {exc}"}, status=500)
+                return
+            _json_response(self, {"ok": True, "project": project}, status=200)
             return
 
         if path == "/api/run-start":

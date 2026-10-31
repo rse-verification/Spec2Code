@@ -146,16 +146,12 @@ def test_execute_pipeline_prepared_happy_path_writes_outputs_and_copies_files(tm
 
 
 @pytest.mark.unit
-def test_execute_pipeline_prepared_skips_processing_when_parser_returns_error(tmp_path, monkeypatch):
+def test_execute_pipeline_prepared_records_real_parse_error_and_continues_samples(tmp_path, monkeypatch):
     cfg = _make_cfg(tmp_path, n_programs=2)
     runtime = _FakeRuntime(cfg.llms_used)
 
-    parsed = [
-        {"error": "bad output", "raw_output": "x"},
-        {"code": "int f(void){return 0;}\n", "generated_header": "#pragma once\n"},
-    ]
-
-    monkeypatch.setattr(pipeline_executor, "extract_llm_response_info", lambda output_llm: parsed.pop(0))
+    responses = iter(["truncated output", json.dumps({"c": "int f(void){return 0;}", "h": "int f(void);"})])
+    runtime.llms_available[cfg.llms_used[0]] = SimpleNamespace(prompt=lambda *a, **kw: SimpleNamespace(text=lambda: next(responses)))
 
     calls = {"n": 0}
 
@@ -168,6 +164,43 @@ def test_execute_pipeline_prepared_skips_processing_when_parser_returns_error(tm
     pipeline_executor.execute_pipeline_prepared(cfg, runtime=runtime)
 
     assert calls["n"] == 1
+    sample = Path(cfg.output_folder) / cfg.llms_used[0] / "sample_000"
+    failure = json.loads((sample / "output.json").read_text())
+    assert failure["raw_output"] == "truncated output"
+    assert failure["critics_success"] is False
+    assert failure["critics_results"] == []
+    assert failure["generation_stop_reason"] == "max_generation_iterations_reached"
+    assert (sample / "attempt_000/output.json").is_file()
+
+
+@pytest.mark.unit
+def test_real_parse_failure_is_repaired_with_raw_response_and_diagnostics(tmp_path, monkeypatch):
+    cfg = _make_cfg(tmp_path)
+    cfg.max_generation_iterations = 3
+    raw_failure = 'BEGIN_C\nint f(void) { return 0; }\nEND_C'
+    responses = iter([raw_failure, json.dumps({"c": "int f(void){return 0;}", "h": "int f(void);"})])
+    prompts = []
+
+    def prompt(text, **kwargs):
+        prompts.append(text)
+        raw = next(responses)
+        return SimpleNamespace(text=lambda: raw)
+
+    runtime = SimpleNamespace(llms_available={cfg.llms_used[0]: SimpleNamespace(prompt=prompt)})
+    processed = []
+    monkeypatch.setattr(pipeline_executor, "process_llm_generated_code", lambda **kw: processed.append(kw) or {"critics_success": True})
+    pipeline_executor.execute_pipeline_prepared(cfg, runtime=runtime)
+    assert len(prompts) == 2
+    assert len(processed) == 1
+    assert "one complete BEGIN_C/END_C" in prompts[1]
+    assert raw_failure in prompts[1]
+    sample = Path(cfg.output_folder) / cfg.llms_used[0] / "sample_000"
+    result = json.loads((sample / "output.json").read_text())
+    assert "error" not in result
+    assert result["generation_attempt_count"] == 2
+    assert result["generation_attempts"][0]["error"]
+    assert result["generation_stop_reason"] == "all_critics_passed"
+    assert result["exact_model_used"] == cfg.llms_used[0]
 
 
 @pytest.mark.unit
@@ -329,6 +362,9 @@ def test_execute_pipeline_prepared_retries_until_critics_pass(tmp_path, monkeypa
     assert data["critics_success"] is True
     assert data["generation_stop_reason"] == "all_critics_passed"
     assert data["generation_attempt_count"] == 2
+    assert [attempt["critics_success"] for attempt in data["generation_attempts"]] == [False, True]
+    assert [attempt["generation_iteration"] for attempt in data["generation_attempts"]] == [0, 1]
+    assert all(attempt["total_elapsed_time_attempt"] >= 0 for attempt in data["generation_attempts"])
 
 
 @pytest.mark.unit

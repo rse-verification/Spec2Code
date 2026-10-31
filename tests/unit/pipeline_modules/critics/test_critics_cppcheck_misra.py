@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import shutil
 
 import pytest
 
@@ -17,6 +19,15 @@ def _base_paths(tmp_path: Path) -> tuple[Path, Path]:
     c_file = _write(tmp_path / "src" / "main.c", "int main(void){return 0;}\n")
     rules = _write(tmp_path / "misra_rules.txt", "R1\n")
     return c_file, rules
+
+
+def _cppcheck_xml(*errors: str) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<results version="2"><cppcheck version="2.21.0"/><errors>'
+        + "".join(errors)
+        + "</errors></results>\n"
+    )
 
 
 @pytest.mark.unit
@@ -108,7 +119,7 @@ def test_cppcheck_run_misra_nonzero_still_analyzes_output(tmp_path, monkeypatch)
 
     misra_output = "[src/main.c:10]: (Required) [misra-c2012-1.1] violation\n"
     seq = [
-        ("dump ok", "", False, 0),
+        ("", _cppcheck_xml(), False, 0),
         (misra_output, "", False, 1),
     ]
 
@@ -138,6 +149,26 @@ def test_cppcheck_run_misra_nonzero_still_analyzes_output(tmp_path, monkeypatch)
 
 @pytest.mark.unit
 @pytest.mark.critics
+def test_cppcheck_run_misra_nonzero_without_findings_is_tool_failure(tmp_path, monkeypatch):
+    c_file, rules = _base_paths(tmp_path)
+    _write(Path(f"{c_file}.dump"), "dump")
+    responses = iter(
+        [
+            ("", _cppcheck_xml(), False, 0),
+            ("", "python3: can't open file 'misra.py'", False, 2),
+        ]
+    )
+    monkeypatch.setattr(critics_cppcheck_misra, "_run_command_streaming", lambda *args, **kwargs: next(responses))
+
+    result = critics_cppcheck_misra.CppcheckMisraCritic(str(rules)).run({"c_file_path": str(c_file)})
+
+    assert result["success"] is False
+    assert "MISRA addon failed" in result["summary"]
+    assert result["metrics"]["native"]["misra_returncode"] == 2
+
+
+@pytest.mark.unit
+@pytest.mark.critics
 def test_cppcheck_run_uses_rule_texts_and_keeps_dump_phase_plain(tmp_path, monkeypatch):
     c_file, rules = _base_paths(tmp_path)
     _write(Path(f"{c_file}.dump"), "dump")
@@ -147,7 +178,7 @@ def test_cppcheck_run_uses_rule_texts_and_keeps_dump_phase_plain(tmp_path, monke
     def _fake_stream(cmd, *, timeout_s, cwd, stream, prefix):
         calls.append(cmd)
         if len(calls) == 1:
-            return "dump ok", "", False, 0
+            return "", _cppcheck_xml(), False, 0
         return "", "", False, 0
 
     monkeypatch.setattr(critics_cppcheck_misra, "_run_command_streaming", _fake_stream)
@@ -170,7 +201,7 @@ def test_cppcheck_run_always_gates_the_analyzed_c_file(tmp_path, monkeypatch):
     _write(Path(f"{c_file}.dump"), "dump")
 
     seq = [
-        ("dump ok", "", False, 0),
+        ("", _cppcheck_xml(), False, 0),
         ("[src/main.c:10]: (Advisory) [misra-c2012-8.9] violation\n", "", False, 1),
     ]
 
@@ -293,3 +324,148 @@ def test_cppcheck_write_log_failure_does_not_raise(tmp_path, monkeypatch):
 
     monkeypatch.setattr("builtins.open", _boom)
     critic._write_log(str(c_file.parent), "x.log", "hello")
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_cppcheck_dump_command_enables_broad_checks_and_forwards_build_context(tmp_path):
+    c_file, rules = _base_paths(tmp_path)
+    include_dir = tmp_path / "include dir"
+    critic = critics_cppcheck_misra.CppcheckMisraCritic(str(rules))
+
+    command = critic._dump_command(
+        str(c_file),
+        {
+            "include_dirs": [str(include_dir)],
+            "defines": ["FEATURE=1", "NAME=two words"],
+            "cppcheck_addons": "threadsafety,y2038",
+        },
+    )
+
+    assert "--enable=warning,style,performance,portability,information,missingInclude" in command
+    assert "--check-level=exhaustive" in command
+    assert "--inconclusive" in command
+    assert "--check-library" in command
+    assert "--max-ctu-depth=10" in command
+    assert "--platform=unix64" in command
+    assert "--xml-version=2" in command
+    assert "--dump" in command
+    assert f"-I '{include_dir}'" in command
+    assert "-DFEATURE=1" in command
+    assert "'-DNAME=two words'" in command
+    assert "--addon=threadsafety" in command
+    assert "--addon=y2038" in command
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_cppcheck_enable_all_and_jobs_are_opt_in(tmp_path):
+    c_file, rules = _base_paths(tmp_path)
+    critic = critics_cppcheck_misra.CppcheckMisraCritic(str(rules))
+
+    command = critic._dump_command(
+        str(c_file),
+        {"cppcheck_enable_all": True, "cppcheck_jobs": 4},
+    )
+
+    assert "--enable=all" in command
+    assert "-j 4" in command
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_cppcheck_native_xml_parses_generated_findings_and_filters_dependencies(tmp_path):
+    c_file, rules = _base_paths(tmp_path)
+    external = tmp_path / "include" / "external.h"
+    critic = critics_cppcheck_misra.CppcheckMisraCritic(str(rules))
+    output = _cppcheck_xml(
+        f'<error id="nullPointer" severity="error" msg="Null pointer" verbose="Null pointer dereference" cwe="476">'
+        f'<location file="{c_file}" line="7" column="3"/></error>',
+        f'<error id="styleIssue" severity="style" msg="Style"><location file="{external}" line="2"/></error>',
+        '<error id="checkersReport" severity="information" msg="Active checkers"/>',
+    )
+
+    findings = critic._parse_cppcheck_xml(output, [str(c_file)], str(c_file.parent))
+
+    assert [finding["rule"] for finding in findings] == ["nullPointer", "checkersReport"]
+    assert findings[0]["severity"] == "error"
+    assert findings[0]["location"] == {"file": str(c_file), "line": 7, "column": 3}
+    assert findings[1]["severity"] == "info"
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_cppcheck_native_warning_gating_is_configurable(tmp_path, monkeypatch):
+    c_file, rules = _base_paths(tmp_path)
+    _write(Path(f"{c_file}.dump"), "dump")
+    warning = (
+        f'<error id="knownConditionTrueFalse" severity="style" msg="Condition is always true">'
+        f'<location file="{c_file}" line="3"/></error>'
+    )
+    responses = iter([("", _cppcheck_xml(warning), False, 0), ("", "", False, 0)])
+    monkeypatch.setattr(critics_cppcheck_misra, "_run_command_streaming", lambda *args, **kwargs: next(responses))
+    critic = critics_cppcheck_misra.CppcheckMisraCritic(str(rules))
+
+    result = critic.run({"c_file_path": str(c_file), "context": {"cppcheck_gate_warnings": False}})
+
+    assert result["success"] is True
+    assert result["findings"][0]["rule"] == "knownConditionTrueFalse"
+    assert result["metrics"]["cppcheck_warnings_generated"] == 1
+    assert result["metrics"]["cppcheck_gating_findings"] == 0
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_cppcheck_native_error_always_fails(tmp_path, monkeypatch):
+    c_file, rules = _base_paths(tmp_path)
+    _write(Path(f"{c_file}.dump"), "dump")
+    error = (
+        f'<error id="nullPointer" severity="error" msg="Null pointer">'
+        f'<location file="{c_file}" line="4"/></error>'
+    )
+    responses = iter([("", _cppcheck_xml(error), False, 0), ("", "", False, 0)])
+    monkeypatch.setattr(critics_cppcheck_misra, "_run_command_streaming", lambda *args, **kwargs: next(responses))
+    critic = critics_cppcheck_misra.CppcheckMisraCritic(str(rules))
+
+    result = critic.run({"c_file_path": str(c_file), "context": {"cppcheck_gate_warnings": False}})
+
+    assert result["success"] is False
+    assert result["score"] == pytest.approx(0.25)
+    assert result["findings"][0]["rule"] == "nullPointer"
+    assert result["metrics"]["cppcheck_errors_generated"] == 1
+    assert result["metrics"]["cppcheck_gating_findings"] == 1
+
+
+@pytest.mark.unit
+@pytest.mark.critics
+def test_cppcheck_malformed_native_xml_fails_closed(tmp_path, monkeypatch):
+    c_file, rules = _base_paths(tmp_path)
+    _write(Path(f"{c_file}.dump"), "dump")
+    responses = iter([("", "<results>", False, 0), ("", "", False, 0)])
+    monkeypatch.setattr(critics_cppcheck_misra, "_run_command_streaming", lambda *args, **kwargs: next(responses))
+
+    result = critics_cppcheck_misra.CppcheckMisraCritic(str(rules)).run({"c_file_path": str(c_file)})
+
+    assert result["success"] is False
+    assert "Failed to parse Cppcheck XML" in result["summary"]
+
+
+@pytest.mark.integration
+@pytest.mark.critics
+def test_cppcheck_real_run_detects_native_null_pointer(tmp_path):
+    if os.name == "nt" or shutil.which("cppcheck") is None:
+        pytest.skip("requires Cppcheck on Linux")
+    rules = Path(critics_cppcheck_misra.__file__).with_name("misra_rules_2012.txt")
+    critic = critics_cppcheck_misra.CppcheckMisraCritic(str(rules), timeout=60)
+    if not os.path.isfile(critic._find_misra_script()):
+        pytest.skip("Cppcheck MISRA addon is not installed")
+    source = _write(
+        tmp_path / "native-defect.c",
+        "int read_value(void) { int *value = 0; return *value; }\n",
+    )
+
+    result = critic.run({"c_file_path": str(source)})
+
+    assert result["success"] is False
+    assert any(finding["rule"] == "nullPointer" for finding in result["findings"])
+    assert result["metrics"]["cppcheck_errors_generated"] >= 1

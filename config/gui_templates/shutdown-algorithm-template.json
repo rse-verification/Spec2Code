@@ -22,6 +22,7 @@
     "framac_wp_no_qed": true,
     "critics": [
       "compile",
+      "no-loops",
       "framac-wp",
       "cppcheck-misra"
     ]

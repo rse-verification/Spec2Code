@@ -1,8 +1,10 @@
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import threading
+import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
 
 from spec2code.pipeline_modules.critics.critics_interface import CriticInput, CriticResult, Finding
@@ -11,9 +13,71 @@ from spec2code.pipeline_modules.critics.critics_interface import CriticInput, Cr
 class CppcheckMisraCritic:
     name = "cppcheck-misra"
 
-    def __init__(self, misra_rules_path: str, timeout: int = 600):
+    def __init__(
+        self,
+        misra_rules_path: str,
+        timeout: int = 600,
+        *,
+        enable_all: bool = False,
+        inconclusive: bool = True,
+        check_level: str = "exhaustive",
+        platform: str = "unix64",
+        max_ctu_depth: int = 10,
+        jobs: int = 0,
+        gate_warnings: bool = True,
+        addons: Optional[List[str]] = None,
+    ):
         self.misra_rules_path = misra_rules_path
         self.timeout = timeout
+        self.enable_all = enable_all
+        self.inconclusive = inconclusive
+        self.check_level = check_level
+        self.platform = platform
+        self.max_ctu_depth = max_ctu_depth
+        self.jobs = jobs
+        self.gate_warnings = gate_warnings
+        self.addons = list(addons or [])
+
+    def _dump_command(self, c_file_path: str, ctx: Dict[str, Any]) -> str:
+        enable_all = bool(ctx.get("cppcheck_enable_all", self.enable_all))
+        enabled = "all" if enable_all else "warning,style,performance,portability,information,missingInclude"
+        parts = [
+            "cppcheck",
+            f"--enable={enabled}",
+            "--language=c",
+            "--std=c11",
+            "--force",
+            "--xml",
+            "--xml-version=2",
+            "--dump",
+        ]
+        if bool(ctx.get("cppcheck_inconclusive", self.inconclusive)):
+            parts.append("--inconclusive")
+        check_level = str(ctx.get("cppcheck_check_level", self.check_level) or "").strip()
+        if check_level:
+            parts.append(f"--check-level={check_level}")
+        platform = str(ctx.get("cppcheck_platform", self.platform) or "").strip()
+        if platform:
+            parts.append(f"--platform={platform}")
+        max_ctu_depth = int(ctx.get("cppcheck_max_ctu_depth", self.max_ctu_depth) or 0)
+        if max_ctu_depth > 0:
+            parts.append(f"--max-ctu-depth={max_ctu_depth}")
+        jobs = int(ctx.get("cppcheck_jobs", self.jobs) or 0)
+        if jobs > 0:
+            parts.extend(["-j", str(jobs)])
+        if bool(ctx.get("cppcheck_check_library", True)):
+            parts.append("--check-library")
+        for include_dir in ctx.get("include_dirs", []) or []:
+            parts.extend(["-I", str(include_dir)])
+        for define in ctx.get("defines", []) or []:
+            parts.append(f"-D{define}")
+        addons = ctx.get("cppcheck_addons", self.addons)
+        if isinstance(addons, str):
+            addons = [item.strip() for item in addons.split(",") if item.strip()]
+        for addon in addons or []:
+            parts.append(f"--addon={addon}")
+        parts.append(c_file_path)
+        return " ".join(shlex.quote(part) for part in parts)
 
     def run(self, inp: CriticInput) -> CriticResult:
         c_file_path = inp["c_file_path"]
@@ -26,10 +90,7 @@ class CppcheckMisraCritic:
 
         workdir = os.path.dirname(c_file_path) or None
 
-        dump_cmd = (
-            "cppcheck --enable=all --language=c --std=c11 "
-            f"--force --dump '{c_file_path}'"
-        )
+        dump_cmd = self._dump_command(c_file_path, ctx)
         if debug:
             print(f"[cppcheck-misra] dump command: {dump_cmd}")
 
@@ -96,7 +157,7 @@ class CppcheckMisraCritic:
                 },
             )
 
-        misra_script = "/usr/lib/x86_64-linux-gnu/cppcheck/addons/misra.py"
+        misra_script = self._find_misra_script(str(ctx.get("misra_script_path") or ""))
         rule_texts_path = str(ctx.get("misra_rules_path") or self.misra_rules_path)
         if not os.path.isabs(rule_texts_path):
             rule_texts_path = os.path.abspath(rule_texts_path)
@@ -176,6 +237,22 @@ class CppcheckMisraCritic:
                     "cwd": workdir,
                 },
             )
+        if misra_rc != 0 and "[misra-c2012-" not in misra_log:
+            return self._result_from_counts(
+                success=False,
+                required=0,
+                advisory=0,
+                undefined=0,
+                raw_output=misra_log,
+                summary=f"cppcheck MISRA addon failed (rc={misra_rc}):\n{misra_log}",
+                native={
+                    "misra_returncode": misra_rc,
+                    "misra_stdout": misra_stdout,
+                    "misra_stderr": misra_stderr,
+                    "misra_command": misra_cmd,
+                    "cwd": workdir,
+                },
+            )
 
         # -------------------------
         # Scope definitions
@@ -205,6 +282,42 @@ class CppcheckMisraCritic:
             command=misra_cmd,
             allowed_files=allowed_files,
             generated_files=generated_files,
+        )
+
+        try:
+            cppcheck_findings = self._parse_cppcheck_xml(dump_stderr, generated_files, workdir)
+        except (ET.ParseError, ValueError) as exc:
+            return self._result_from_counts(
+                success=False,
+                required=0,
+                advisory=0,
+                undefined=0,
+                raw_output=dump_log,
+                summary=f"Failed to parse Cppcheck XML output: {exc}",
+                native={"dump_command": dump_cmd, "dump_returncode": dump_rc, "cwd": workdir},
+            )
+
+        gate_warnings = bool(ctx.get("cppcheck_gate_warnings", self.gate_warnings))
+        gating_cppcheck = [
+            finding
+            for finding in cppcheck_findings
+            if finding["severity"] == "error"
+            or (gate_warnings and finding["severity"] == "warning")
+        ]
+        misra_success = bool(result["success"])
+        result["success"] = misra_success and not gating_cppcheck
+        cppcheck_weight = sum(3 if finding["severity"] == "error" else 1 for finding in gating_cppcheck)
+        combined_weight = int(result["metrics"].get("weighted_violations_generated", 0)) + cppcheck_weight
+        result["score"] = 1.0 if result["success"] else 1.0 / (1.0 + float(combined_weight))
+        result["findings"] = cppcheck_findings + list(result.get("findings", []))
+        native_summary = (
+            f"Cppcheck reported {len(cppcheck_findings)} generated-code finding(s); "
+            f"{len(gating_cppcheck)} gated."
+        )
+        result["summary"] = native_summary + " " + str(result["summary"])
+        native_output = "\n".join(finding["message"] for finding in cppcheck_findings)
+        result["raw_output"] = "\n".join(
+            part for part in [native_output, str(result.get("raw_output", ""))] if part.strip()
         )
 
         # Attach native execution info
@@ -237,6 +350,16 @@ class CppcheckMisraCritic:
             "generated_files": generated_files,
         }
         result["metrics"] = result_metrics
+        result["metrics"].update(
+            {
+                "cppcheck_findings_generated": len(cppcheck_findings),
+                "cppcheck_errors_generated": sum(f["severity"] == "error" for f in cppcheck_findings),
+                "cppcheck_warnings_generated": sum(f["severity"] == "warning" for f in cppcheck_findings),
+                "cppcheck_information_generated": sum(f["severity"] == "info" for f in cppcheck_findings),
+                "cppcheck_gating_findings": len(gating_cppcheck),
+                "cppcheck_gate_warnings": gate_warnings,
+            }
+        )
         result["metrics"]["process_real_s"] = float(dump_timing.get("real", 0.0)) + float(misra_timing.get("real", 0.0))
         result["metrics"]["process_user_s"] = float(dump_timing.get("user", 0.0)) + float(misra_timing.get("user", 0.0))
         result["metrics"]["process_sys_s"] = float(dump_timing.get("sys", 0.0)) + float(misra_timing.get("sys", 0.0))
@@ -245,6 +368,76 @@ class CppcheckMisraCritic:
     # -------------------------
     # Internal helpers
     # -------------------------
+
+    def _find_misra_script(self, configured: str = "") -> str:
+        if configured:
+            return os.path.abspath(configured)
+        executable = shutil.which("cppcheck")
+        candidates = [
+            "/usr/local/share/cppcheck/addons/misra.py",
+            "/usr/share/cppcheck/addons/misra.py",
+            "/usr/lib/x86_64-linux-gnu/cppcheck/addons/misra.py",
+            "/usr/lib/aarch64-linux-gnu/cppcheck/addons/misra.py",
+        ]
+        if executable:
+            candidates.insert(
+                0,
+                os.path.abspath(os.path.join(os.path.dirname(executable), "..", "share", "cppcheck", "addons", "misra.py")),
+            )
+        return next((path for path in candidates if os.path.isfile(path)), candidates[0])
+
+    def _parse_cppcheck_xml(
+        self,
+        output: str,
+        generated_files: List[str],
+        workdir: Optional[str],
+    ) -> List[Finding]:
+        start = output.find("<?xml")
+        if start < 0:
+            start = output.find("<results")
+        end = output.rfind("</results>")
+        if start < 0 or end < start:
+            raise ValueError("Cppcheck did not emit a complete XML results document")
+        root = ET.fromstring(output[start : end + len("</results>")])
+        generated = {self._canonical_path(path, workdir) for path in generated_files}
+        findings: List[Finding] = []
+        for error in root.findall("./errors/error"):
+            locations = error.findall("location")
+            selected = None
+            for location in locations:
+                file_path = location.get("file") or location.get("file0")
+                if file_path and self._canonical_path(file_path, workdir) in generated:
+                    selected = location
+                    break
+            if locations and selected is None:
+                continue
+
+            native_severity = (error.get("severity") or "warning").lower()
+            severity = "error" if native_severity == "error" else (
+                "info" if native_severity in {"information", "debug"} else "warning"
+            )
+            message = error.get("verbose") or error.get("msg") or "Cppcheck reported a finding."
+            finding: Finding = {
+                "tool": self.name,
+                "severity": severity,
+                "message": message,
+                "rule": error.get("id") or "cppcheck",
+            }
+            if selected is not None:
+                location_data: Dict[str, Any] = {"file": selected.get("file") or selected.get("file0") or ""}
+                if (selected.get("line") or "").isdigit():
+                    location_data["line"] = int(selected.get("line") or 0)
+                if (selected.get("column") or "").isdigit():
+                    location_data["column"] = int(selected.get("column") or 0)
+                finding["location"] = location_data
+            findings.append(finding)
+        return findings
+
+    def _canonical_path(self, path: str, workdir: Optional[str]) -> str:
+        value = path
+        if not os.path.isabs(value) and workdir:
+            value = os.path.join(workdir, value)
+        return os.path.normcase(os.path.realpath(os.path.abspath(value)))
 
     def _log_path(self, workdir: Optional[str], filename: str) -> str:
         base = workdir or os.getcwd()

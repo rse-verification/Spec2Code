@@ -193,3 +193,4 @@ venv/bin/distro
 table_technique_counts.tex
 tables_merged.tex
 src/spec2code/gui/last-run.html
+spec2code-workspace/

@@ -4,15 +4,18 @@ import re
 import os
 import signal
 import threading
+from collections.abc import Sequence
 
 
 _TIME_RX = re.compile(r"^\s*(real|user|sys)\s+([0-9]+(?:\.[0-9]+)?)\s*$")
 
 
-def _wrap_with_time(command: str) -> str:
+def _wrap_with_time(command: str | Sequence[str]) -> str | list[str]:
     # Force POSIX /usr/bin/time output for real/user/sys metrics.
     if os.name == "nt" or not os.path.exists("/usr/bin/time"):
-        return command
+        return command if isinstance(command, str) else list(command)
+    if not isinstance(command, str):
+        return ["/usr/bin/time", "-p", *command]
     return f"/usr/bin/time -p bash -lc {shlex.quote(command)}"
 
 
@@ -34,12 +37,12 @@ def _extract_time_metrics(stderr_text: str) -> tuple[str, dict[str, float]]:
         cleaned += "\n"
     return cleaned, metrics
 
-def run_command(command: str, timeout: int, cwd: str | None = None, stream: bool = True) -> tuple:
+def run_command(command: str | Sequence[str], timeout: int, cwd: str | None = None, stream: bool = True) -> tuple:
     """
     Runs a shell command with a specified timeout.
 
     Args:
-        command (str): The command to execute.
+        command: A shell command string, or an argument list executed without a shell.
         timeout (int): The maximum time in seconds the command can run.
 
     Returns:
@@ -55,11 +58,12 @@ def run_command(command: str, timeout: int, cwd: str | None = None, stream: bool
         timed_command,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        shell=True,
+        shell=isinstance(command, str),
         cwd=cwd,
         # The command string is executed through a shell. Give it a distinct
         # process group so that a timeout can stop the shell and its children.
         start_new_session=(os.name != "nt"),
+        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0,
     )
     stdout_parts: list[bytes] = []
     stderr_parts: list[bytes] = []
@@ -89,9 +93,20 @@ def run_command(command: str, timeout: int, cwd: str | None = None, stream: bool
         return stdout, stderr_text, True, process.returncode, timing
     except subprocess.TimeoutExpired:
         if os.name != "nt":
-            os.killpg(process.pid, signal.SIGKILL)
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass  # Process exited between wait() and killpg().
         else:
-            process.kill()
+            # kill() alone leaves descendants holding stdout/stderr pipes open.
+            try:
+                subprocess.run(
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5,
+                )
+            finally:
+                if process.poll() is None:
+                    process.kill()
         # Reap the process and let both pipe readers finish after terminating it.
         process.wait()
         stdout_thread.join()

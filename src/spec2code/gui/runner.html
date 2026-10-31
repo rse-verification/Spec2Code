@@ -56,11 +56,12 @@
             <h2>Run Config</h2>
 
         <div class="mode-toggle">
-          <button id="modeTemplate" class="mode-btn active" type="button">Template Mode</button>
-          <button id="modeCustom" class="mode-btn" type="button">Custom JSON Mode</button>
+          <button id="modeProject" class="mode-btn active" type="button">Project Mode</button>
+          <button id="modeTemplate" class="mode-btn" type="button">Template Mode</button>
+          <button id="modeCustom" class="mode-btn" type="button">Advanced configuration</button>
         </div>
 
-        <label>Models (multi-select)</label>
+        <label for="modelSearch">Choose models</label>
         <div class="inline-tools">
           <span id="modelsLoading" class="inline-loading hidden" aria-live="polite" role="status">
             <span class="spinner" aria-hidden="true"></span>
@@ -69,13 +70,83 @@
           <button id="refreshModelsBtn" type="button" class="ghost-btn">Refresh models</button>
           <a class="settings-link" href="/settings">Provider settings</a>
         </div>
-        <select id="modelsSelect" multiple size="10"></select>
+        <input id="modelSearch" type="search" placeholder="Filter by provider or model name" />
+        <div id="modelsSelect" class="model-checklist" role="group" aria-label="Models"></div>
+        <div id="modelSelectionSummary" class="hint" aria-live="polite">Select at least one model.</div>
         <div id="modelsDiagnostics" class="models-diagnostics hidden">
           <button id="modelsInfoBtn" type="button" class="info-btn" aria-label="Provider discovery details">i</button>
           <div id="modelsNote" class="info-popover" role="tooltip"></div>
         </div>
 
-        <div id="templateModeBox">
+        <div id="projectModeBox">
+          <label>Project</label>
+          <div class="input-picker-row">
+            <select id="projectSelect"></select>
+            <button id="refreshProjectsBtn" type="button" class="ghost-btn">Refresh</button>
+          </div>
+          <div id="projectSummary" class="hint">Projects are stored in the managed workspace.</div>
+
+          <div class="inline-tools">
+            <button id="importProjectZipBtn" type="button" class="ghost-btn">Import project ZIP</button>
+            <button id="importProjectFolderBtn" type="button" class="ghost-btn">Choose folder</button>
+            <button id="importProjectFilesBtn" type="button" class="ghost-btn">Choose files</button>
+            <input id="projectZipInput" type="file" accept=".zip,application/zip" class="hidden" />
+            <input id="projectFolderInput" type="file" webkitdirectory multiple class="hidden" />
+            <input id="projectFilesInput" type="file" multiple class="hidden" />
+          </div>
+          <p class="hint">Choose a folder or a set of files from your computer. Review the requirements, interface and headers below; paths and include directories are filled in automatically. Folder upload also works with Docker.</p>
+          <div id="projectImportReview" class="hidden">
+            <h3>Review project files</h3>
+            <p id="projectImportSummary" class="hint"></p>
+            <label for="importProjectName">Project name</label><input id="importProjectName" autocomplete="off" />
+            <label for="importSpec">Requirements file</label><select id="importSpec"></select>
+            <label for="importInterface">Interface (.is)</label><select id="importInterface"></select>
+            <label for="importHeaders">Headers directory</label><select id="importHeaders"></select>
+            <label for="importVerification">Verification header (optional)</label><select id="importVerification"></select>
+            <div class="inline-tools"><button id="confirmProjectImport" type="button">Import selected files</button><button id="cancelProjectImport" type="button" class="ghost-btn">Cancel</button></div>
+          </div>
+
+          <label>Run name</label>
+          <input id="projectRunName" value="project-run" autocomplete="off" />
+
+          <div class="row">
+            <div>
+              <label>Programs per model</label>
+              <input id="projectPrograms" type="number" min="1" value="1" />
+            </div>
+            <div>
+              <label>Temperature</label>
+              <input id="projectTemperature" type="number" min="0" step="0.1" value="0.7" />
+            </div>
+            <div>
+              <label>Repair iterations</label>
+              <input id="projectMaxIterations" type="number" min="0" value="0" />
+            </div>
+          </div>
+
+          <label>Critics</label>
+          <div id="projectCriticsCatalog" class="critics-catalog"></div>
+
+          <details>
+            <summary class="hint">Advanced paths and project overrides</summary>
+            <label>Output folder override</label>
+            <input id="projectOutputFolder" autocomplete="off" placeholder="Automatically managed" />
+            <label>Natural spec override</label>
+            <input id="projectNaturalSpecPath" autocomplete="off" placeholder="Auto-detected" />
+            <label>Interface override</label>
+            <input id="projectInterfacePath" autocomplete="off" placeholder="Auto-detected" />
+            <label>Verification header override</label>
+            <input id="projectVerificationHeaderPath" autocomplete="off" placeholder="Auto-detected" />
+            <label>Include directories override (comma-separated)</label>
+            <input id="projectIncludeDirs" autocomplete="off" placeholder="Auto-detected" />
+            <label>Headers directory override</label>
+            <input id="projectHeadersDir" autocomplete="off" placeholder="Auto-detected" />
+            <label>Prompt headers manifest override (JSON object)</label>
+            <textarea id="projectHeadersManifest" rows="5" spellcheck="false" placeholder="Auto-detected"></textarea>
+          </details>
+        </div>
+
+        <div id="templateModeBox" class="hidden">
           <label>Template config</label>
           <div class="input-picker-row">
             <input id="templatePath" value="config/gui_templates/shutdown-algorithm-template.json" autocomplete="off" list="templateSuggestions" />
@@ -195,7 +266,9 @@
     </div>
 
     <div id="filePickerModal" class="picker-modal hidden" aria-hidden="true">
-      <div class="picker-dialog">
+      <div class="picker-dialog" role="dialog" aria-modal="true" aria-label="Choose a file or directory">
+        <p class="hint">Choose an existing server path below, upload a file from your computer, or use the server's native picker.</p>
+        <div class="inline-tools"><button id="pickerUpload" type="button">Upload file</button><button id="pickerNative" type="button">Native picker</button></div>
         <div class="picker-top">
           <input id="pickerSearch" placeholder="Search files..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <button id="pickerClose" type="button">Close</button>
