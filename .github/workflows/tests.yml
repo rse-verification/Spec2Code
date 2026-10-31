@@ -24,17 +24,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
         python: ['3.11', '3.12']
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: 'requirements*.txt'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7.1.0
         with:
           node-version: '24'
       - run: python -m pip install -r requirements-test.txt
@@ -48,7 +48,7 @@ jobs:
         run: node --test tests/unit/gui/test_analytics.cjs
       - if: ${{ !cancelled() }}
         run: python -m coverage xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: portable-${{ matrix.os }}-${{ matrix.python }}
@@ -60,10 +60,10 @@ jobs:
   native-critics:
     name: Native critics (GCC, Clang, Cppcheck)
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -79,7 +79,7 @@ jobs:
           cppcheck --version
           python -c "from pathlib import Path; from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic; assert Path(CppcheckMisraCritic('')._find_misra_script()).is_file(), 'Cppcheck MISRA addon is missing'"
       - run: python -m pytest -m "native and not slow" -q -ra --junitxml=native-results.xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: native-critics
@@ -89,12 +89,12 @@ jobs:
   browser:
     name: Chromium workflow
     timeout-minutes: 20
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       SPEC2CODE_BROWSER_TESTS: '1'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.12'
           cache: pip
@@ -102,7 +102,7 @@ jobs:
       - run: python -m pip install -r requirements-test.txt
       - run: python -m playwright install --with-deps chromium
       - run: python -m pytest -m e2e -q --junitxml=browser-results.xml
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: browser
@@ -113,7 +113,7 @@ jobs:
     name: Test gate
     if: always()
     needs: [portable, native-critics, browser]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every test job to pass
