@@ -8,10 +8,12 @@ the rest of the pipeline can stay provider-agnostic.
 
 import json
 import os
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
+from urllib.parse import urlparse
 
 import boto3
 import llm
@@ -57,6 +59,42 @@ def get_model_name(model: Any) -> str:
 def _env(key: str, default: Optional[str] = None) -> Optional[str]:
     v = os.getenv(key)
     return v if v else default
+
+
+def generation_model_unavailable_reason(provider: str, model_id: str) -> Optional[str]:
+    """Filter known non-generation endpoints without an allowlist of model versions.
+
+    Listing a model is not an inference/access test. Unknown text model IDs remain
+    usable, including private deployments and fine-tuned models.
+    """
+    name = model_id.lower()
+    if re.search(r"embed|rerank|moderation|whisper|dall-e|\btts\b|transcrib|realtime|(?:^|[./:-])sora|(?:^|[./:-])stable-diffusion", name):
+        return "Not a text/code generation model."
+    if re.search(r"(?:^|[./:-])(?:image|audio)(?:[./:-]|$)|nova-(?:canvas|reel|sonic)", name):
+        return "Image/audio/video generation is not supported by the code pipeline."
+    if provider == "openai" and (name in {"babbage-002", "davinci-002"} or "-instruct" in name or name.startswith("text-davinci")):
+        return "Legacy completions-only model; the pipeline uses chat or Responses."
+    if provider == "openai" and any(part in name for part in ("deep-research", "computer-use")):
+        return "Requires a specialized tool workflow rather than standalone code generation."
+    return None
+
+
+def _rejects_parameter(exc: Exception, parameter: str) -> bool:
+    """Retry only an explicit parameter-compatibility rejection, never auth/quota errors."""
+    if getattr(exc, "status_code", None) not in {400, 422}:
+        return False
+    message = str(exc).lower()
+    return parameter.lower() in message and any(term in message for term in ("unsupported", "not supported", "does not support", "only the default"))
+
+
+def _request_with_optional_temperature(create: Any, kwargs: Dict[str, Any]) -> Any:
+    try:
+        return create(**kwargs)
+    except Exception as exc:
+        if "temperature" not in kwargs or not _rejects_parameter(exc, "temperature"):
+            raise
+        without_temperature = {key: value for key, value in kwargs.items() if key != "temperature"}
+        return create(**without_temperature)
 
 
 @dataclass
@@ -118,11 +156,17 @@ class BedrockProvider:
         }
 
         try:
-            resp = self._client.converse(
-                modelId=model_id,
-                messages=messages,
-                inferenceConfig=inference_cfg,
-            )
+            try:
+                resp = self._client.converse(modelId=model_id, messages=messages, inferenceConfig=inference_cfg)
+            except Exception as exc:
+                error = getattr(exc, "response", {}).get("Error", {})
+                message = str(exc).lower()
+                if error.get("Code") != "ValidationException" or "temperature" not in message or not any(term in message for term in ("not supported", "does not support", "unsupported", "only the default")):
+                    raise
+                resp = self._client.converse(
+                    modelId=model_id, messages=messages,
+                    inferenceConfig={key: value for key, value in inference_cfg.items() if key != "temperature"},
+                )
             data = resp
             parts: List[str] = []
             content_items = (
@@ -133,6 +177,15 @@ class BedrockProvider:
                 if isinstance(item, dict) and "text" in item:
                     parts.append(str(item.get("text", "")))
         except Exception as converse_exc:
+            error = getattr(converse_exc, "response", {}).get("Error", {})
+            # Authentication, throttling and inference-profile errors must not be
+            # retried with an unrelated native payload (which hides the real error).
+            unsupported_api = error.get("Code") in {"UnknownOperationException", "NotImplementedException"} or (
+                error.get("Code") == "ValidationException" and "converse" in str(converse_exc).lower()
+                and "not support" in str(converse_exc).lower()
+            )
+            if not unsupported_api:
+                raise
             is_anthropic = "anthropic" in str(model_id).lower()
             if not is_anthropic:
                 raise RuntimeError(
@@ -172,6 +225,7 @@ class OpenAICompatibleProvider:
     # Works for OpenAI itself and any endpoint implementing compatible chat APIs.
     def __init__(self, *, base_url: str, api_key: str):
         self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._official_openai = urlparse(base_url).hostname == "api.openai.com"
 
     def generate(
         self,
@@ -183,17 +237,54 @@ class OpenAICompatibleProvider:
         max_completion_tokens: Optional[int] = None,
     ) -> _SimpleLLMResponse:
         started = time.perf_counter()
+        official = getattr(self, "_official_openai", False)
+        reasoning = official and bool(re.match(r"^(?:o[134](?:-|$)|gpt-5(?:[.-]|$))", model_id))
+        # Codex and pro variants require Responses rather than Chat Completions.
+        responses_only = official and ("codex" in model_id or bool(re.match(r"^(?:o\d|gpt-5).*?-pro(?:-|$)", model_id)))
+        if responses_only:
+            kwargs = {"model": model_id, "input": prompt}
+            limit = max_completion_tokens if max_completion_tokens is not None else max_tokens
+            if limit is not None:
+                kwargs["max_output_tokens"] = int(limit)
+            if not reasoning:
+                kwargs["temperature"] = float(temperature)
+            response = _request_with_optional_temperature(self._client.responses.create, kwargs)
+            return _SimpleLLMResponse(
+                _text=str(response.output_text or "").strip(),
+                _raw={"provider": "openai-compatible", "model": model_id, "response": response.model_dump()},
+                _duration_ms=(time.perf_counter() - started) * 1000.0,
+            )
         kwargs: Dict[str, Any] = {
             "model": model_id,
             "messages": [{"role": "user", "content": prompt}],
-            "temperature": float(temperature),
         }
+        if not reasoning:
+            kwargs["temperature"] = float(temperature)
         if max_completion_tokens is not None:
             kwargs["max_completion_tokens"] = int(max_completion_tokens)
         elif max_tokens is not None:
-            kwargs["max_tokens"] = int(max_tokens)
+            kwargs["max_completion_tokens" if reasoning else "max_tokens"] = int(max_tokens)
 
-        resp = self._client.chat.completions.create(**kwargs)
+        # Compatible servers differ on token-limit names. Only retry explicit
+        # unsupported-parameter errors, and only once per parameter.
+        changed: set[str] = set()
+        for _ in range(3):
+            try:
+                resp = self._client.chat.completions.create(**kwargs)
+                break
+            except Exception as exc:
+                if "temperature" in kwargs and _rejects_parameter(exc, "temperature"):
+                    kwargs.pop("temperature")
+                    continue
+                token_key = "max_completion_tokens" if "max_completion_tokens" in kwargs else "max_tokens"
+                if token_key in kwargs and "tokens" not in changed and _rejects_parameter(exc, token_key):
+                    other_key = "max_tokens" if token_key == "max_completion_tokens" else "max_completion_tokens"
+                    kwargs[other_key] = kwargs.pop(token_key)
+                    changed.add("tokens")
+                    continue
+                raise
+        else:
+            raise RuntimeError(f"Model '{model_id}' rejected the supported generation parameters.")
         text = ""
         if resp.choices and resp.choices[0].message:
             text = resp.choices[0].message.content or ""
@@ -222,12 +313,12 @@ class AnthropicProvider:
         max_completion_tokens: Optional[int] = None,
     ) -> _SimpleLLMResponse:
         started = time.perf_counter()
-        response = self._client.messages.create(
-            model=model_id,
-            max_tokens=int(max_tokens or max_completion_tokens or 4096),
-            temperature=float(temperature),
-            messages=[{"role": "user", "content": prompt}],
-        )
+        response = _request_with_optional_temperature(self._client.messages.create, {
+            "model": model_id,
+            "max_tokens": int(max_tokens or max_completion_tokens or 4096),
+            "temperature": float(temperature),
+            "messages": [{"role": "user", "content": prompt}],
+        })
         text = "".join(
             str(item.text)
             for item in response.content
@@ -382,6 +473,9 @@ def build_model(name: str) -> Any:
     if name not in specs and separator and provider_prefix in {"openai", "ollama", "vllm", "anthropic"}:
         if not model_id:
             raise KeyError(f"Invalid model name '{name}' (missing model id).")
+        reason = generation_model_unavailable_reason(provider_prefix, model_id)
+        if reason:
+            raise ValueError(f"Cannot generate code with '{name}': {reason}")
         if provider_prefix == "anthropic":
             api_key = _env("ANTHROPIC_API_KEY")
             if not api_key:
@@ -394,7 +488,7 @@ def build_model(name: str) -> Any:
             base_url = _env(f"{env_prefix}_BASE_URL") or (
                 "https://api.openai.com/v1" if provider_prefix == "openai" else "http://localhost:8000/v1"
             )
-            api_key = _env(f"{env_prefix}_API_KEY")
+            api_key = _env(f"{env_prefix}_API_KEY") or ("not-required" if provider_prefix == "vllm" else None)
             if not api_key:
                 raise RuntimeError(f"Missing environment variable: {env_prefix}_API_KEY")
             provider = OpenAICompatibleProvider(base_url=base_url, api_key=api_key)

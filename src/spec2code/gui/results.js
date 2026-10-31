@@ -30,13 +30,15 @@ function escapeHtml(value) {
 }
 
 function formatSeconds(value) {
+  if (window.Spec2CodeAnalytics.numeric(value) === null) return "Not reported";
+  if (Number(value) < 1) return `${Number(Number(value).toFixed(3))}s`;
   const total = Math.max(0, Math.round(Number(value) || 0));
   const minutes = Math.floor(total / 60);
   return minutes ? `${minutes}m ${String(total % 60).padStart(2, "0")}s` : `${total}s`;
 }
 
 function criticDuration(critic) {
-  return Number(critic.elapsed_time_s ?? (critic.metrics || {}).elapsed_time_s ?? 0);
+  return window.Spec2CodeAnalytics.duration(critic);
 }
 
 function severity(value) {
@@ -45,10 +47,7 @@ function severity(value) {
 }
 
 function criticStatus(critic) {
-  const findings = critic.findings || [];
-  if (findings.some((finding) => severity(finding.severity) === "error") || critic.score === 0) return "failed";
-  if (critic.score === 1 || critic.success === true) return findings.length ? "warning" : "passed";
-  return "warning";
+  return window.Spec2CodeAnalytics.status(critic);
 }
 
 function locationText(location = {}) {
@@ -72,9 +71,10 @@ function renderHeader() {
   const passed = activeCritics.filter((critic) => criticStatus(critic) === "passed").length;
   const errors = activeFindings.filter((finding) => finding.severity === "error").length;
   const warnings = activeFindings.filter((finding) => finding.severity === "warning").length;
-  const duration = Number(activeData.total_elapsed_time_program || activeCritics.reduce((sum, critic) => sum + criticDuration(critic), 0));
-  const status = errors ? "Needs attention" : warnings ? "Warnings" : "Passed";
-  const statusClass = errors ? "failed" : warnings ? "warning" : "passed";
+  const stats = window.Spec2CodeAnalytics.summarize(activeData);
+  const duration = activeData.total_elapsed_time_program ?? activeData.total_elapsed_time_attempt ?? null;
+  const statusClass = stats.overall;
+  const status = { failed: "Needs attention", unknown: "Incomplete", warning: "Partial", passed: "Passed" }[statusClass];
   elements.title.innerHTML = `<span class="status-pill ${statusClass}">${status}</span> ${passed}/${activeCritics.length} critics passed`;
   elements.identity.textContent = [activeData.exact_model_used, activeData.sample_name, activeData.attempt_name].filter(Boolean).join(" / ") || "Latest run";
   elements.summary.textContent = `${errors} error${errors === 1 ? "" : "s"} · ${warnings} warning${warnings === 1 ? "" : "s"} · ${formatSeconds(duration)} total`;
@@ -88,7 +88,8 @@ function renderCritics() {
     const status = criticStatus(critic);
     const findings = critic.findings || [];
     const mainIssue = findings[0]?.message || critic.summary || (status === "passed" ? "No findings" : "No diagnostic details");
-    return `<tr class="critic-row ${elements.criticFilter.value === critic.tool ? "selected" : ""}" data-critic="${escapeHtml(critic.tool || "unknown")}" tabindex="0"><td><span class="status-strip ${status}"></span>${escapeHtml(critic.tool || "unknown")}</td><td><span class="status-label ${status}">${status}</span></td><td>${Math.round(Number(critic.score || 0) * 100)}%</td><td>${findings.length}</td><td>${formatSeconds(criticDuration(critic))}</td><td class="main-issue">${escapeHtml(mainIssue)}</td></tr>`;
+    const score = window.Spec2CodeAnalytics.numeric(critic.score);
+    return `<tr class="critic-row ${elements.criticFilter.value === critic.tool ? "selected" : ""}" data-critic="${escapeHtml(critic.tool || "unknown")}" tabindex="0"><td><span class="status-strip ${status}"></span>${escapeHtml(critic.tool || "unknown")}</td><td><span class="status-label ${status}">${status}</span></td><td>${score === null ? "Not reported" : `${Math.round(score * 100)}%`}</td><td>${findings.length}</td><td>${formatSeconds(criticDuration(critic))}</td><td class="main-issue">${escapeHtml(mainIssue)}</td></tr>`;
   }).join("") || '<tr><td colspan="6" class="empty-cell">No critic results available.</td></tr>';
   elements.critics.querySelectorAll(".critic-row").forEach((row) => row.addEventListener("click", () => {
     elements.criticFilter.value = row.dataset.critic;
@@ -98,7 +99,7 @@ function renderCritics() {
 }
 
 function renderOutcome() {
-  const counts = { passed: 0, warning: 0, failed: 0 };
+  const counts = { passed: 0, warning: 0, failed: 0, unknown: 0 };
   activeCritics.forEach((critic) => { counts[criticStatus(critic)] += 1; });
   const total = activeCritics.length || 1;
   elements.outcome.innerHTML = Object.entries(counts).map(([kind, count]) => `<div class="distribution-row"><span>${kind}</span><div><i class="${kind}" style="width:${(count / total) * 100}%"></i></div><b>${count}</b></div>`).join("");
@@ -109,7 +110,7 @@ function renderRuntime() {
   const max = Math.max(...activeCritics.map(criticDuration), 0.001);
   elements.runtime.innerHTML = [...activeCritics].sort((a, b) => criticDuration(b) - criticDuration(a)).map((critic) => {
     const duration = criticDuration(critic);
-    return `<div class="runtime-row"><span>${escapeHtml(critic.tool || "unknown")}</span><div><i style="width:${(duration / max) * 100}%"></i></div><b>${formatSeconds(duration)} <small>${Math.round((duration / total) * 100)}%</small></b></div>`;
+    return `<div class="runtime-row"><span>${escapeHtml(critic.tool || "unknown")}</span><div><i style="width:${((duration ?? 0) / max) * 100}%"></i></div><b>${formatSeconds(duration)} <small>${duration === null ? "" : `${Math.round((duration / total) * 100)}%`}</small></b></div>`;
   }).join("") || '<p class="muted-note">No timing information available.</p>';
 }
 
@@ -157,10 +158,14 @@ function selectFinding(finding) {
 }
 
 function renderEvidence() {
-  const totalGoals = activeCritics.reduce((sum, critic) => sum + Number(critic.metrics?.goals_total || 0), 0);
-  const proved = activeCritics.reduce((sum, critic) => sum + Number(critic.metrics?.goals_proved || 0), 0);
+  const totalGoals = activeCritics.reduce((sum, critic) => sum + Number(critic.metrics?.total_goals ?? critic.metrics?.goals_total ?? 0), 0);
+  const proved = activeCritics.reduce((sum, critic) => sum + Number(critic.metrics?.proved_goals ?? critic.metrics?.goals_proved ?? 0), 0);
   elements.evidence.innerHTML = `<div><span>Model</span><strong>${escapeHtml(activeData.exact_model_used || "Unknown")}</strong></div><div><span>Generation attempts</span><strong>${activeData.generation_attempt_count || 1}</strong></div><div><span>Proof obligations</span><strong>${totalGoals ? `${proved} / ${totalGoals} proved` : "Not reported"}</strong></div>`;
-  const artifacts = [["C source", activeData.generated_file_path], ["Header", activeData.generated_header_path], ["ACSL", activeData.generated_acsl_path]].filter(([, path]) => path);
+  const criticArtifacts = activeCritics.flatMap((critic) => {
+    const sarifPath = (critic.metrics || {}).sarif_path;
+    return sarifPath ? [[`${critic.tool || "critic"} SARIF`, sarifPath]] : [];
+  });
+  const artifacts = [["C source", activeData.generated_file_path], ["Header", activeData.generated_header_path], ["ACSL", activeData.generated_acsl_path], ...criticArtifacts].filter(([, path]) => path);
   elements.artifacts.innerHTML = artifacts.map(([label, path]) => `<a href="/api/artifact?path=${encodeURIComponent(path)}">${label}</a>`).join("") || '<span class="muted-note">No generated artifacts available.</span>';
 }
 
@@ -180,6 +185,7 @@ async function refreshResults() {
     activeFindings = allFindings(activeCritics);
     selectedFinding = null;
     populateCriticFilter(); renderHeader(); renderCritics(); renderOutcome(); renderRuntime(); renderFindings(); renderSource(); renderEvidence();
+    window.Spec2CodeAnalytics.render(document.getElementById("criticAnalytics"), activeData);
     elements.download.href = useVerify ? "/reports/latest-verify.json" : "/api/latest-result";
   } catch (error) {
     elements.title.textContent = "No result available";

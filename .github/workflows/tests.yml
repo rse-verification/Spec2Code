@@ -1,0 +1,127 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  PYTHON_DOTENV_DISABLED: '1'
+
+jobs:
+  portable:
+    name: Python ${{ matrix.python }} / ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+        python: ['3.11', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: 'requirements*.txt'
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: '24'
+      - run: python -m pip install -r requirements-test.txt
+      - name: Python tests
+        run: python -m coverage run -m pytest -m "not native and not e2e" -q --junitxml=test-results.xml
+      - name: Coverage threshold
+        if: ${{ !cancelled() }}
+        run: python -m coverage report
+      - name: JavaScript tests
+        if: ${{ !cancelled() }}
+        run: node --test tests/unit/gui/test_analytics.cjs
+      - if: ${{ !cancelled() }}
+        run: python -m coverage xml
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: portable-${{ matrix.os }}-${{ matrix.python }}
+          retention-days: 14
+          path: |
+            test-results.xml
+            coverage.xml
+
+  native-critics:
+    name: Native critics (GCC, Clang, Cppcheck)
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 'requirements*.txt'
+      - run: sudo apt-get update && sudo apt-get install -y gcc clang cppcheck
+      - run: python -m pip install -r requirements-test.txt
+      - name: Verify native tools and MISRA addon
+        env:
+          PYTHONPATH: src
+        run: |
+          gcc --version
+          clang --version
+          cppcheck --version
+          python -c "from pathlib import Path; from spec2code.pipeline_modules.critics.critics_cppcheck_misra import CppcheckMisraCritic; assert Path(CppcheckMisraCritic('')._find_misra_script()).is_file(), 'Cppcheck MISRA addon is missing'"
+      - run: python -m pytest -m "native and not slow" -q -ra --junitxml=native-results.xml
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: native-critics
+          retention-days: 14
+          path: native-results.xml
+
+  browser:
+    name: Chromium workflow
+    timeout-minutes: 20
+    runs-on: ubuntu-24.04
+    env:
+      SPEC2CODE_BROWSER_TESTS: '1'
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: 'requirements*.txt'
+      - run: python -m pip install -r requirements-test.txt
+      - run: python -m playwright install --with-deps chromium
+      - run: python -m pytest -m e2e -q --junitxml=browser-results.xml
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: browser
+          retention-days: 14
+          path: browser-results.xml
+
+  test-gate:
+    name: Test gate
+    if: always()
+    needs: [portable, native-critics, browser]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every test job to pass
+        env:
+          PORTABLE_RESULT: ${{ needs.portable.result }}
+          NATIVE_RESULT: ${{ needs.native-critics.result }}
+          BROWSER_RESULT: ${{ needs.browser.result }}
+        run: |
+          test "$PORTABLE_RESULT" = success
+          test "$NATIVE_RESULT" = success
+          test "$BROWSER_RESULT" = success

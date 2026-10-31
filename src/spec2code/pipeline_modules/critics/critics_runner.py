@@ -108,13 +108,15 @@ def run_critics_on_artifacts(
 
     execution_order = {
         "compile": 0,
-        "framac-wp": 1,
-        "cppcheck-misra": 2,
-        "vernfr-control-flow": 3,
-        "vernfr-data-flow": 4,
-        "binary-size": 5,
-        "valgrind": 6,
-        "esbmc": 7,
+        "no-loops": 1,
+        "framac-wp": 2,
+        "cppcheck-misra": 3,
+        "polyspace-bug-finder": 4,
+        "vernfr-control-flow": 5,
+        "vernfr-data-flow": 6,
+        "binary-size": 7,
+        "valgrind": 8,
+        "esbmc": 9,
     }
     # Compile produces the executable required by runtime critics. Keep all
     # other critics in their user-facing order for predictable execution logs.

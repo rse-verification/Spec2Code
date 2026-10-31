@@ -1,5 +1,13 @@
 # syntax=docker/dockerfile:1
-FROM debian:bookworm
+ARG DEBIAN_VERSION=trixie
+FROM debian:${DEBIAN_VERSION}
+
+# Keep all image tool versions configurable from one build invocation.
+ARG OCAML_VERSION=5.4.1
+ARG OPAM_VERSION=2.5.2
+ARG CPPCHECK_VERSION=2.21.0
+ARG Z3_VERSION=4.16.0
+ARG CVC5_VERSION=1.2.0
 
 ENV DEBIAN_FRONTEND=noninteractive \
     OPAMYES=1 \
@@ -7,18 +15,26 @@ ENV DEBIAN_FRONTEND=noninteractive \
     VENV_DIR=/opt/venv \
     OPAMJOBS=4
 
-# --- System deps (no Debian dune; we’ll use opam dune) ---
+# --- System deps (OCaml tooling comes from OPAM) ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl wget unzip git \
     build-essential pkg-config m4 bubblewrap \
     zlib1g-dev libgmp-dev libexpat1-dev \
     python3 python3-venv python3-pip \
-    clang cppcheck graphviz \
-    opam ocaml-findlib \
+    clang graphviz \
     autoconf \
     libgtksourceview-3.0-dev \
     file \
   && rm -rf /var/lib/apt/lists/*
+
+# --- Versioned Cppcheck build (upstream ships Windows binaries only) ---
+RUN set -eux; \
+  wget -O /tmp/cppcheck.tar.gz "https://github.com/cppcheck-opensource/cppcheck/archive/refs/tags/${CPPCHECK_VERSION}.tar.gz"; \
+  tar -xzf /tmp/cppcheck.tar.gz -C /tmp; \
+  make -C "/tmp/cppcheck-${CPPCHECK_VERSION}" -j"$(nproc)" MATCHCOMPILER=yes; \
+  make -C "/tmp/cppcheck-${CPPCHECK_VERSION}" install PREFIX=/usr/local FILESDIR=/usr/local/share/cppcheck MATCHCOMPILER=yes; \
+  rm -rf /tmp/cppcheck*; \
+  cppcheck --version
 
 ARG INSTALL_AWSCLI=0
 
@@ -47,38 +63,46 @@ RUN if [ "$INSTALL_AWSCLI" = "1" ]; then \
 # Make boto3/CLI use SSO profiles in ~/.aws/config and avoid pager errors
 ENV AWS_SDK_LOAD_CONFIG=1 \
     AWS_PAGER=""
-# --- OPAM init + OCaml 5.4 switch ---
+# --- Official versioned OPAM binary ---
+RUN set -eux; \
+  arch="$(dpkg --print-architecture)"; \
+  case "$arch" in \
+    amd64) opam_arch="x86_64" ;; \
+    arm64) opam_arch="arm64" ;; \
+    *) echo "Unsupported architecture for OPAM: $arch"; exit 1 ;; \
+  esac; \
+  wget -O /usr/local/bin/opam "https://github.com/ocaml/opam/releases/download/${OPAM_VERSION}/opam-${OPAM_VERSION}-${opam_arch}-linux"; \
+  chmod 0755 /usr/local/bin/opam; \
+  test "$(opam --version)" = "$OPAM_VERSION"
+
+# --- OPAM init + configured OCaml switch ---
 RUN opam init -y --disable-sandboxing \
- && opam repository add default https://opam.ocaml.org \
  && opam update \
- && opam switch create ocaml5 ocaml-base-compiler.5.4.0
+ && opam switch create ocaml5 "ocaml-base-compiler.${OCAML_VERSION}"
 
 # --- Install the pinned OPAM critic stack ---
 COPY spec2code.opam /tmp/spec2code.opam
 RUN bash -lc 'eval "$(opam env --switch=ocaml5)" \
- && opam install -y opam-depext \
- && opam depext -y /tmp/spec2code.opam \
  && opam install -y --deps-only /tmp/spec2code.opam'
 
 # --- Solvers ---
 RUN set -eux; \
   arch="$(dpkg --print-architecture)"; \
-  if [ "$arch" = "amd64" ]; then \
-    CVC5_URL="https://github.com/cvc5/cvc5/releases/download/cvc5-1.2.0/cvc5-Linux-x86_64-static.zip"; \
-    wget -O /tmp/cvc5.zip "$CVC5_URL"; \
-    unzip /tmp/cvc5.zip -d /tmp; \
-    install -m 0755 /tmp/cvc5-Linux-x86_64-static/bin/cvc5 /usr/local/bin/cvc5; \
-    rm -rf /tmp/cvc5*; \
-    Z3_URL="https://github.com/Z3Prover/z3/releases/download/z3-4.8.6/z3-4.8.6-x64-ubuntu-16.04.zip"; \
-    wget -O /tmp/z3.zip "$Z3_URL"; \
-    unzip /tmp/z3.zip -d /tmp; \
-    install -m 0755 /tmp/z3-4.8.6-x64-ubuntu-16.04/bin/z3 /usr/local/bin/z3; \
-    rm -rf /tmp/z3*; \
-  else \
-    apt-get update; \
-    apt-get install -y --no-install-recommends z3 cvc5; \
-    rm -rf /var/lib/apt/lists/*; \
-  fi; \
+  case "$arch" in \
+    amd64) cvc5_asset="cvc5-Linux-x86_64-static"; z3_asset="z3-${Z3_VERSION}-x64-glibc-2.39" ;; \
+    arm64) cvc5_asset="cvc5-Linux-arm64-static"; z3_asset="z3-${Z3_VERSION}-arm64-glibc-2.38" ;; \
+    *) echo "Unsupported architecture for CVC5: $arch"; exit 1 ;; \
+  esac; \
+  CVC5_URL="https://github.com/cvc5/cvc5/releases/download/cvc5-${CVC5_VERSION}/${cvc5_asset}.zip"; \
+  wget -O /tmp/cvc5.zip "$CVC5_URL"; \
+  unzip -q /tmp/cvc5.zip -d /tmp; \
+  install -m 0755 "/tmp/${cvc5_asset}/bin/cvc5" /usr/local/bin/cvc5; \
+  rm -rf /tmp/cvc5*; \
+  wget -O /tmp/z3.zip "https://github.com/Z3Prover/z3/releases/download/z3-${Z3_VERSION}/${z3_asset}.zip"; \
+  unzip -q /tmp/z3.zip -d /tmp; \
+  mv "/tmp/${z3_asset}" /opt/z3; \
+  ln -s /opt/z3/bin/z3 /usr/local/bin/z3; \
+  rm /tmp/z3.zip; \
   z3 --version; \
   cvc5 --version
 
@@ -145,8 +169,14 @@ RUN mkdir -p /root/.config/cppcheck \
 
 # --- Environment: prefer ocaml5 switch + venv ---
 ENV PATH="$VENV_DIR/bin:/opt/opam/ocaml5/bin:/usr/local/bin:/usr/bin:/bin" \
+    VIRTUAL_ENV="$VENV_DIR" \
     OPAM_SWITCH="ocaml5"
 
-RUN echo 'eval "$(opam env --switch=ocaml5)"' >> /etc/bash.bashrc
+RUN printf '%s\n' \
+      'export PATH="/opt/venv/bin:/opt/opam/ocaml5/bin:/usr/local/bin:/usr/bin:/bin"' \
+      'eval "$(opam env --switch=ocaml5 --set-switch)"' \
+      > /etc/profile.d/spec2code.sh \
+ && chmod 0644 /etc/profile.d/spec2code.sh \
+ && printf '%s\n' '. /etc/profile.d/spec2code.sh' >> /etc/bash.bashrc
 
 CMD ["bash"]

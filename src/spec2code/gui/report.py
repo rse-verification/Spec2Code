@@ -9,6 +9,8 @@ import time
 import webbrowser
 from pathlib import Path
 
+from spec2code.workspace import WorkspacePaths
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,6 +55,8 @@ def write_last_run_html(*, index_path: Path, output_path: Path, data: dict, asse
     if asset_version:
         html = html.replace('href="styles.css"', f'href="styles.css?v={asset_version}"')
         html = html.replace('src="app.js"', f'src="app.js?v={asset_version}"')
+        html = html.replace('src="analytics.js"', f'src="analytics.js?v={asset_version}"')
+        html = html.replace('href="analytics.css"', f'href="analytics.css?v={asset_version}"')
 
     with output_path.open("w", encoding="utf-8") as f:
         f.write(html)
@@ -90,7 +94,7 @@ def render_last_run_report(
 ) -> None:
     gui_dir = Path(__file__).resolve().parent
     repo_root = Path(__file__).resolve().parents[3]
-    output_root = Path(os.getenv("SPEC2CODE_OUTPUT_ROOT", str(repo_root.parent / "spec2code_output"))).resolve()
+    output_root = WorkspacePaths.from_env(repo_root=repo_root).output
     reports_dir = output_root / "reports"
     reports_dir.mkdir(parents=True, exist_ok=True)
 
@@ -108,6 +112,8 @@ def render_last_run_report(
         # Keep report assets next to generated HTML so it works outside gui_dir.
         shutil.copy2(gui_dir / "styles.css", reports_dir / "styles.css")
         shutil.copy2(gui_dir / "app.js", reports_dir / "app.js")
+        shutil.copy2(gui_dir / "analytics.js", reports_dir / "analytics.js")
+        shutil.copy2(gui_dir / "analytics.css", reports_dir / "analytics.css")
 
         write_last_run_html(
             index_path=index_path,

@@ -139,6 +139,7 @@ async function renderPickerEntries() {
 async function openPicker({ targetId, kind, ext, append }) {
   pickerState = { targetId, kind: kind || "file", ext: ext || "", append: !!append };
   pickerSearch.value = "";
+  document.getElementById("pickerUpload").hidden = pickerState.kind !== "file";
   filePickerModal.classList.remove("hidden");
   filePickerModal.setAttribute("aria-hidden", "false");
   await renderPickerEntries();
@@ -189,6 +190,7 @@ async function tryBrowserPicker({ targetId, kind, ext, append }) {
   if (accept) input.accept = accept;
 
   const file = await new Promise((resolve) => {
+    input.addEventListener("cancel", () => resolve(null), { once: true });
     input.addEventListener("change", () => {
       resolve((input.files && input.files[0]) || null);
     }, { once: true });
@@ -210,36 +212,23 @@ async function tryBrowserPicker({ targetId, kind, ext, append }) {
 
 document.addEventListener("click", (ev) => {
   const btn = ev.target.closest(".picker-btn");
-  if (!btn || ev.shiftKey) return;
+  if (!btn) return;
   const req = {
     targetId: btn.dataset.pickerTarget,
     kind: btn.dataset.pickerKind || "file",
     ext: btn.dataset.pickerExt || "",
     append: btn.dataset.pickerAppend === "1",
   };
-  tryNativePicker(req)
-    .then((state) => {
-      if (state === "picked" || state === "cancelled") return state;
-      return tryBrowserPicker(req);
-    })
-    .then((state) => {
-      if (state === "picked" || state === "cancelled") return;
-      return openPicker(req);
-    })
-    .catch((e) => setStatus(`Picker failed: ${e}`, false));
+  openPicker(req).catch((e) => setStatus(`Picker failed: ${e}`, false));
 });
 
-document.addEventListener("click", (ev) => {
-  const btn = ev.target.closest(".picker-btn");
-  if (!btn || !ev.shiftKey) return;
-  const req = {
-    targetId: btn.dataset.pickerTarget,
-    kind: btn.dataset.pickerKind || "file",
-    ext: btn.dataset.pickerExt || "",
-    append: btn.dataset.pickerAppend === "1",
-  };
-  openPicker(req).catch((e) => setStatus(`Failed to open fallback picker: ${e}`, false));
-});
+[["pickerUpload", tryBrowserPicker], ["pickerNative", tryNativePicker]].forEach(([id, pick]) => document.getElementById(id).addEventListener("click", () => {
+  pick(pickerState).then((state) => {
+    if (state === "picked") closePicker();
+    if (state === "error") setStatus("Picker unavailable. Choose a server path or upload a file.", false);
+  }).catch((error) => setStatus(error.message, false));
+}));
+document.addEventListener("keydown", (event) => { if (event.key === "Escape") closePicker(); });
 
 pickerClose.addEventListener("click", closePicker);
 filePickerModal.addEventListener("click", (e) => {

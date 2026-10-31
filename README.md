@@ -3,6 +3,8 @@
 ## Start Here
 
 - [Install and run](docs/INSTALLING_AND_RUNNING.md)
+- [Managed workspaces](docs/WORKSPACES.md)
+- [Testing and GitHub Actions](docs/TESTING.md)
 - [Add a critic](docs/ADDING_CRITICS.md)
 - [Critic extensibility plan](docs/CRITIC_EXTENSIBILITY_PLAN.md)
 - [Browse all docs](docs/README.md)
@@ -110,7 +112,18 @@ From repository root:
 docker build -f dockerfile -t spec2code:local .
 ```
 
-The default image includes compile (GCC), Cppcheck/MISRA, Frama-C/WP, and VerNFR critics. Valgrind and ESBMC are optional.
+For the simplest persistent setup, build and start with Compose instead:
+
+```bash
+docker compose up --build
+```
+
+This creates one ignored `spec2code-workspace/` directory and exposes the GUI
+at `http://127.0.0.1:8080/runner`. Import a project ZIP in Project Mode; no
+individual input, header, case-study, or output mounts are required. See
+[Managed workspaces](docs/WORKSPACES.md).
+
+The default image includes compile (GCC), Cppcheck/MISRA, Frama-C/WP, and VerNFR critics. Valgrind, ESBMC, and Polyspace Bug Finder are optional.
 
 Apple Silicon (M1/M2/M3) notes:
 
@@ -136,6 +149,23 @@ Optional (enable Valgrind and ESBMC critics):
 
 ```bash
 docker build -f dockerfile --build-arg INSTALL_VALGRIND=1 --build-arg INSTALL_ESBMC=1 -t spec2code:local .
+```
+
+Tool versions are Docker build arguments. Defaults are `DEBIAN_VERSION=trixie`,
+`OCAML_VERSION=5.4.1`,
+`OPAM_VERSION=2.5.2`, `Z3_VERSION=4.16.0`, `CVC5_VERSION=1.2.0`, and
+`CPPCHECK_VERSION=2.21.0`, and `ESBMC_VERSION=7.6`:
+
+```bash
+docker build -f dockerfile \
+  --build-arg DEBIAN_VERSION=trixie \
+  --build-arg OCAML_VERSION=5.4.1 \
+  --build-arg OPAM_VERSION=2.5.2 \
+  --build-arg CPPCHECK_VERSION=2.21.0 \
+  --build-arg Z3_VERSION=4.16.0 \
+  --build-arg CVC5_VERSION=1.2.0 \
+  --build-arg ESBMC_VERSION=7.6 \
+  -t spec2code:local .
 ```
 
 ### 3) Run container with project mounted
@@ -225,6 +255,15 @@ export SPEC2CODE_CASE_STUDIES_ROOT=/absolute/path/to/spec2code_case_studies
 export SPEC2CODE_INPUT_ROOT=/absolute/path/to/spec2code_input
 ```
 
+New installations can replace all three roots with one managed workspace:
+
+```bash
+export SPEC2CODE_WORKSPACE_ROOT=/absolute/path/to/spec2code-workspace
+```
+
+Its conventional children are `projects/`, `input/`, and `output/`. Explicit
+legacy root variables still take precedence when set.
+
 GUI template files are read from:
 
 - `config/gui_templates/`
@@ -286,6 +325,7 @@ Pipeline configs are JSON arrays (multiple runs per file).
 Key fields:
 
 - `name`, `selected_prompt_template`
+- `project` or `project_dir` for automatic managed-project discovery
 - `llms_used`, `n_programs_generated`, `temperature`
 - `natural_spec_path`, `interface_path`, `headers_dir`, `headers_manifest`
 - `include_dirs`, `verification_header_path`
@@ -324,9 +364,21 @@ Configurable critics:
 - `valgrind`
 - `binary-size`
 - `esbmc`
+- `no-loops` (enabled by default; rejects `for`, `while`, `do...while`, `goto`, computed `goto`, statically resolvable recursion, and unresolved indirect calls)
+- `polyspace-bug-finder` (disabled by default; requires a separately licensed Linux Polyspace installation)
 
 Vernfr support is optional. Build/install it only when you want Vernfr critics.
 If Vernfr is not installed, other critics still work normally.
+`no-loops` uses `clang` to inspect the C AST; the Docker image includes it, and
+local runs need `clang` on `PATH`.
+`cppcheck-misra` runs exhaustive native Cppcheck analysis in addition to the
+MISRA-C:2012 addon. Native checks include errors, warnings, style, performance,
+portability, information, missing includes, inconclusive paths, library-model
+coverage, and deeper value-flow analysis. `cppcheck_enable_all` can also
+enable `unusedFunction`, but it is off by default because generated APIs are
+often called by code outside the analyzed translation unit.
+`polyspace-bug-finder` runs analysis and exports SARIF evidence. Polyspace is not
+distributed in the image; see [docs/INSTALLING_AND_RUNNING.md](docs/INSTALLING_AND_RUNNING.md#polyspace-bug-finder-optional).
 
 Implementation entrypoint:
 
@@ -366,7 +418,7 @@ PYTHONPATH=src python -m spec2code.cli.run_pipeline --config config/gui_template
 For Vernfr critics in local (non-Docker) runs, install optional tooling first:
 
 ```bash
-opam switch create ocaml5 ocaml-base-compiler.5.4.0
+opam switch create ocaml5 ocaml-base-compiler.5.4.1
 bash tools/install_optional_vernfr.sh
 ```
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Callable, Dict, List
 
@@ -11,6 +12,8 @@ from spec2code.pipeline_modules.critics.critics_vernfr import VernfrCritic
 from spec2code.pipeline_modules.critics.critics_valgrind import ValgrindCritic
 from spec2code.pipeline_modules.critics.critics_binary_size import BinarySizeCritic
 from spec2code.pipeline_modules.critics.critics_esbmc import ESBMCCritic
+from spec2code.pipeline_modules.critics.critics_no_loops import NoLoopsCritic
+from spec2code.pipeline_modules.critics.critics_polyspace_bug_finder import PolyspaceBugFinderCritic
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
@@ -49,7 +52,23 @@ def _build_compile(_opts: Dict[str, Any], _solvers: list, _timeout: int) -> Crit
 def _build_cppcheck_misra(opts: Dict[str, Any], _solvers: list, timeout: int) -> Critic:
     rules_path = str(opts.get("misra_rules_path", _MISRA_RULES_PATH_ABS))
     critic_timeout = int(opts.get("timeout", timeout))
-    return CppcheckMisraCritic(misra_rules_path=rules_path, timeout=critic_timeout)
+    addons_value = opts.get("cppcheck_addons", "")
+    if isinstance(addons_value, str):
+        addons = [item.strip() for item in addons_value.split(",") if item.strip()]
+    else:
+        addons = [str(item) for item in addons_value or []]
+    return CppcheckMisraCritic(
+        misra_rules_path=rules_path,
+        timeout=critic_timeout,
+        enable_all=bool(opts.get("cppcheck_enable_all", False)),
+        inconclusive=bool(opts.get("cppcheck_inconclusive", True)),
+        check_level=str(opts.get("cppcheck_check_level", "exhaustive")),
+        platform=str(opts.get("cppcheck_platform", "unix64")),
+        max_ctu_depth=int(opts.get("cppcheck_max_ctu_depth", 10)),
+        jobs=int(opts.get("cppcheck_jobs", 0)),
+        gate_warnings=bool(opts.get("cppcheck_gate_warnings", True)),
+        addons=addons,
+    )
 
 
 def _build_framac_wp(opts: Dict[str, Any], solvers: list, timeout: int) -> Critic:
@@ -126,6 +145,35 @@ def _build_esbmc(opts: Dict[str, Any], _solvers: list, _timeout: int) -> Critic:
         stack_limit=opts.get("stack_limit"),
     )
 
+
+def _build_no_loops(opts: Dict[str, Any], _solvers: list, timeout: int) -> Critic:
+    return NoLoopsCritic(
+        clang=str(opts.get("clang", "clang")),
+        timeout=int(opts.get("timeout", timeout)),
+    )
+
+
+def _polyspace_command(opts: Dict[str, Any], key: str, command: str) -> str:
+    configured = str(opts.get(key, "") or "").strip()
+    if configured:
+        return configured
+    root = os.getenv("POLYSPACE_ROOT", "").strip()
+    if root:
+        return str(Path(root) / "polyspace" / "bin" / command)
+    return command
+
+
+def _build_polyspace_bug_finder(opts: Dict[str, Any], _solvers: list, timeout: int) -> Critic:
+    return PolyspaceBugFinderCritic(
+        executable=_polyspace_command(opts, "executable", "polyspace-bug-finder"),
+        exporter=_polyspace_command(opts, "exporter", "polyspace-results-export"),
+        timeout=int(opts.get("timeout", timeout)),
+        options_file=str(opts.get("options_file", "") or ""),
+        extra_options=opts.get("extra_options"),
+        fail_on=str(opts.get("fail_on", "any") or "any"),
+        results_root=str(opts.get("results_root", "") or ""),
+    )
+
 CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "compile": _build_compile,
     "framac-wp": _build_framac_wp,
@@ -135,11 +183,14 @@ CRITIC_BUILDERS: Dict[str, CriticBuilder] = {
     "valgrind": _build_valgrind,
     "binary-size": _build_binary_size,
     "esbmc": _build_esbmc,
+    "no-loops": _build_no_loops,
+    "polyspace-bug-finder": _build_polyspace_bug_finder,
 }
 
 
 DEFAULT_CRITIC_NAMES: List[str] = [
     "compile",
+    "no-loops",
     "framac-wp",
     "cppcheck-misra",
     "vernfr-control-flow",
@@ -207,12 +258,46 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
         "label": "Cppcheck MISRA",
         "default_enabled": True,
         "options": [
-            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 120},
             {
                 "key": "misra_rules_path",
                 "type": "path",
                 "label": "MISRA Rules Path",
                 "default": DEFAULT_MISRA_RULES_PATH,
+            },
+            {
+                "key": "cppcheck_enable_all",
+                "type": "bool",
+                "label": "Enable All (includes unused-function checks)",
+                "default": False,
+            },
+            {"key": "cppcheck_inconclusive", "type": "bool", "label": "Inconclusive Findings", "default": True},
+            {
+                "key": "cppcheck_check_level",
+                "type": "string",
+                "label": "Check Level",
+                "default": "exhaustive",
+            },
+            {"key": "cppcheck_platform", "type": "string", "label": "Target Platform", "default": "unix64"},
+            {"key": "cppcheck_max_ctu_depth", "type": "int", "label": "Maximum CTU Depth", "default": 10},
+            {"key": "cppcheck_jobs", "type": "int", "label": "Parallel Jobs (0 = Cppcheck default)", "default": 0},
+            {
+                "key": "cppcheck_check_library",
+                "type": "bool",
+                "label": "Check Library Models",
+                "default": True,
+            },
+            {
+                "key": "cppcheck_gate_warnings",
+                "type": "bool",
+                "label": "Fail on Warnings",
+                "default": True,
+            },
+            {
+                "key": "cppcheck_addons",
+                "type": "string",
+                "label": "Additional Addons (comma-separated)",
+                "default": "",
             },
         ],
     },
@@ -270,6 +355,59 @@ GUI_CRITICS_CATALOG: List[Dict[str, Any]] = [
                 "key": "executable_args",
                 "type": "string",
                 "label": "Executable Args",
+                "default": "",
+            },
+        ],
+    },
+    {
+        "name": "no-loops",
+        "label": "No Loops, Goto, or Recursion",
+        "default_enabled": True,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 60},
+            {"key": "clang", "type": "string", "label": "Clang Command", "default": "clang"},
+        ],
+    },
+    {
+        "name": "polyspace-bug-finder",
+        "label": "Polyspace Bug Finder",
+        "default_enabled": False,
+        "options": [
+            {"key": "timeout", "type": "int", "label": "Timeout (s)", "default": 900},
+            {
+                "key": "executable",
+                "type": "path",
+                "label": "Bug Finder Executable (optional)",
+                "default": "",
+            },
+            {
+                "key": "exporter",
+                "type": "path",
+                "label": "Results Export Executable (optional)",
+                "default": "",
+            },
+            {
+                "key": "options_file",
+                "type": "path",
+                "label": "Polyspace Options File (optional)",
+                "default": "",
+            },
+            {
+                "key": "extra_options",
+                "type": "string",
+                "label": "Additional Analysis Options",
+                "default": "",
+            },
+            {
+                "key": "fail_on",
+                "type": "string",
+                "label": "Fail On (any, warning, error)",
+                "default": "any",
+            },
+            {
+                "key": "results_root",
+                "type": "path",
+                "label": "Results Root (optional)",
                 "default": "",
             },
         ],

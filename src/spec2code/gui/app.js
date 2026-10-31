@@ -75,6 +75,7 @@ findingFilter.addEventListener("input", () => {
 });
 
 function renderAll(data) {
+  window.Spec2CodeAnalytics.render(document.getElementById("criticAnalytics"), data);
   renderOverview(data);
   renderCriticsList(data);
   renderCode(data);
@@ -163,6 +164,7 @@ function renderCriticsSummary(data) {
           ${metrics.warnings != null ? `<div class="muted">warnings: ${metrics.warnings}</div>` : ""}
           ${metrics.compiled_output_path ? `<div class="muted">output: ${escapeHtml(metrics.compiled_output_path)}</div>` : ""}
           ${metrics.goals_ratio ? `<div class="muted">goals: ${escapeHtml(metrics.goals_ratio)}</div>` : ""}
+          ${metrics.sarif_path ? `<div class="muted"><a class="artifact-link" href="/api/artifact?path=${encodeURIComponent(metrics.sarif_path)}" target="_blank" rel="noopener">Open SARIF evidence</a></div>` : ""}
           ${metrics.peak_heap_bytes != null ? `<div class="muted">peak heap usage: ${escapeHtml(metrics.peak_heap_bytes)} bytes</div>` : ""}
           ${metrics.peak_stack_bytes != null ? `<div class="muted">peak stack usage: ${escapeHtml(metrics.peak_stack_bytes)} bytes</div>` : ""}
           ${metrics.peak_total_bytes != null ? `<div class="muted">peak total usage: ${escapeHtml(metrics.peak_total_bytes)} bytes</div>` : ""}
@@ -179,11 +181,11 @@ function renderCriticsTiming(data) {
     criticsTiming.innerHTML = "<div class=\"kv-empty\">No critic timing data.</div>";
     return;
   }
-  const durations = critics.map((critic) => Number(critic.elapsed_time_s ?? (critic.metrics || {}).elapsed_time_s ?? 0));
+  const durations = critics.map(window.Spec2CodeAnalytics.duration);
   const maxDuration = Math.max(...durations, 0.001);
   criticsTiming.innerHTML = critics.map((critic, index) => {
     const duration = durations[index];
-    const percent = Math.max(1, (duration / maxDuration) * 100);
+    const percent = ((duration ?? 0) / maxDuration) * 100;
     return `<div class="timing-row">
       <div class="timing-label">${escapeHtml(critic.tool || "unknown")}</div>
       <div class="timing-track"><div class="timing-fill" style="width:${percent}%"></div></div>
@@ -345,13 +347,9 @@ function formatLocation(loc) {
 }
 
 function criticBadge(c) {
-  if (c.score === 1 || c.success === true) {
-    return `<span class="badge ok">ok</span>`;
-  }
-  if (c.score && c.score > 0) {
-    return `<span class="badge warn">warn</span>`;
-  }
-  return `<span class="badge err">fail</span>`;
+  const status = window.Spec2CodeAnalytics.status(c);
+  const style = { passed: "ok", failed: "err", warning: "warn", unknown: "warn" }[status];
+  return `<span class="badge ${style}">${status}</span>`;
 }
 
 function escapeHtml(str) {

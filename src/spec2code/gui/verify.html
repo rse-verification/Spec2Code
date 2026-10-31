@@ -98,7 +98,9 @@
     </div>
 
     <div id="filePickerModal" class="picker-modal hidden" aria-hidden="true">
-      <div class="picker-dialog">
+      <div class="picker-dialog" role="dialog" aria-modal="true" aria-label="Choose a file or directory">
+        <p class="hint">Choose a server path below or upload a file from your computer.</p>
+        <div class="inline-tools"><button id="pickerUpload" type="button">Upload file</button><button id="pickerNative" type="button">Native picker</button></div>
         <div class="picker-top">
           <input id="pickerSearch" placeholder="Search files..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
           <button id="pickerClose" type="button">Close</button>

@@ -6,6 +6,7 @@
     <title>spec2code Results</title>
     <script src="theme.js"></script>
     <link rel="stylesheet" href="runner.css" />
+    <link rel="stylesheet" href="analytics.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -64,7 +65,13 @@
           </section>
           <section class="panel analysis-panel">
             <h2>Runtime profile</h2>
+            <p class="muted-note">Share of measured critic time; missing timings are excluded.</p>
             <div id="runtimeProfile" class="runtime-profile"></div>
+          </section>
+
+          <section class="panel full-width findings-panel">
+            <h2>Statistics &amp; figures</h2>
+            <div id="criticAnalytics"></div>
           </section>
 
           <section class="panel full-width findings-panel">
@@ -89,6 +96,7 @@
       </main>
     </div>
 
+    <script src="analytics.js"></script>
     <script src="results.js"></script>
   </body>
 </html>

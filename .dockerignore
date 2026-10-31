@@ -1,7 +1,9 @@
 # Python venvs
 .venv/
+.venv-*/
 venv/
 **/.venv/
+**/.venv-*/
 **/venv/
 
 # Python caches
@@ -26,3 +28,4 @@ tools/nfrcheck/_build/
 # big folders you probably don't need in the image build context
 output/
 **/output/
+spec2code-workspace/
